@@ -8,6 +8,7 @@ import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adap
 import { clusterApiUrl } from '@solana/web3.js'
 import { useMemo, useState } from 'react'
 import '@solana/wallet-adapter-react-ui/styles.css'
+import './App.css'
 
 const PACK_OPTIONS = [1, 10, 20, 50, 100, 200]
 const TIER_DATA = [
@@ -27,6 +28,8 @@ const RECENT_REWARDS = [
 
 function SharedStocksApp() {
   const [quantity, setQuantity] = useState(10)
+  const [activeTab, setActiveTab] = useState('buy')
+  const [notice, setNotice] = useState('')
   const { publicKey } = useWallet()
 
   const total = (quantity * 0.1).toFixed(2)
@@ -43,22 +46,23 @@ function SharedStocksApp() {
         </div>
 
         <nav className="topnav" aria-label="Main navigation">
-          <a href="#buy">Buy</a>
-          <a href="#how-it-works">How it works</a>
-          <a href="#rewards">Rewards</a>
+          <button className={activeTab === 'buy' ? 'nav-link active' : 'nav-link'} onClick={() => setActiveTab('buy')}>Buy packs</button>
+          <button className={activeTab === 'packs' ? 'nav-link active' : 'nav-link'} onClick={() => setActiveTab('packs')}>My packs</button>
+          <a className="nav-link" href="#how-it-works">How it works</a>
         </nav>
 
         <WalletMultiButton className="wallet-button" />
       </header>
 
+      {notice && <div className="notice" role="status">{notice}</div>}
+
       <section className="hero">
         <div className="hero-copy">
-          <div className="eyebrow">On-chain stock packs</div>
-          <h1>Buy a pack. Gift it. Open it. Discover what future you got.</h1>
+          <div className="eyebrow">Solana / Devnet</div>
+          <h1>A small share of something bigger.</h1>
           <p>
-            SharedStocks mints randomized stock packs on Solana. Every pack is a unique,
-            verifiable ownership right, and the reward is determined on-chain using a
-            trusted randomness source.
+            A SharedStocks pack is a giftable on-chain collectible with a chance to unlock
+            a slice of an eligible PreStock. Open yours, or send a little future to someone.
           </p>
 
           <div className="cta-row">
@@ -123,11 +127,32 @@ function SharedStocksApp() {
             <strong>{publicKey ? `${publicKey.toString().slice(0, 4)}...${publicKey.toString().slice(-4)}` : 'Not connected'}</strong>
           </div>
 
-          <button type="button" className="checkout-button">
+          <button type="button" className="checkout-button" onClick={() => setNotice(publicKey ? `Purchase queued: ${quantity} pack${quantity === 1 ? '' : 's'} for $${total}.` : 'Connect a wallet to purchase packs.') }>
             {publicKey ? 'Confirm purchase' : 'Connect wallet to buy'}
           </button>
+          <p className="fine-print">$0.10 buys the pack itself. The eventual allocation is randomized and is not guaranteed to equal the purchase price.</p>
         </div>
       </section>
+
+      {activeTab === 'packs' && <section className="inventory-section" id="packs">
+        <div className="section-heading">
+          <span className="eyebrow">Wallet inventory</span>
+          <h2>Your unopened pieces of the future.</h2>
+        </div>
+        <div className="pack-grid">
+          {[1842, 1843, 1844].map((pack, index) => (
+            <article className="pack-card" key={pack}>
+              <div className="pack-art"><span>SS</span><small>PACK #{pack}</small></div>
+              <div className="pack-card-copy"><strong>SharedStock #{pack}</strong><span>UNOPENED · NFT</span></div>
+              <div className="pack-actions">
+                <button type="button" onClick={() => setNotice(`Pack #${pack} is ready to open on-chain.`)}>Open</button>
+                <button type="button" className="ghost-button" onClick={() => setNotice(`Gift link prepared for pack #${pack}. Ownership still requires an on-chain transfer.`)}>Gift</button>
+              </div>
+              {index === 0 && <span className="pack-highlight">Latest</span>}
+            </article>
+          ))}
+        </div>
+      </section>}
 
       <section className="reward-section" id="rewards">
         <div className="section-heading">

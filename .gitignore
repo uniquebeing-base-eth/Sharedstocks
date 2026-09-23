@@ -1,0 +1,5 @@
+target/
+.anchor/
+node_modules/
+dist/
+.env

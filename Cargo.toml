@@ -1,0 +1,3 @@
+[workspace]
+members = ["programs/sharedstocks"]
+resolver = "2"

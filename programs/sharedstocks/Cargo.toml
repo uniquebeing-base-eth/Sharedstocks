@@ -1,0 +1,19 @@
+[package]
+name = "sharedstocks"
+version = "0.1.0"
+description = "On-chain ownership and randomized allocation rules for SharedStocks packs."
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "sharedstocks"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+
+[dependencies]
+anchor-lang = { version = "0.30.1", features = ["init-if-needed"] }
