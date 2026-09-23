@@ -1081,3 +1081,7 @@ The PreStock is claimed from an on-chain program-controlled vault.
 The blockchain is the source of truth.
 
 No centralized backend should be required for the core ownership, gifting, randomness, allocation, or claiming flow.
+
+links 
+https://prestocks.com/api/prestocks
+https://prestocks.com/products
