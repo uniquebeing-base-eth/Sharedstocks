@@ -1,0 +1,9 @@
+{
+  "name": "sharedstocks",
+  "private": true,
+  "scripts": {
+    "install:frontend": "npm install --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "dev": "npm run dev --prefix frontend -- --host 0.0.0.0"
+  }
+}
