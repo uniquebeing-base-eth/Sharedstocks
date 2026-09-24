@@ -1,4 +1,4 @@
-SharedStocks
+# SharedStocks
 
 Give a piece of the future.
 
@@ -10,9 +10,8 @@ Live: sharedstocks.signalify.xyz
 PreStocks: prestocks.com
 Built on: Solana
 
-⸻
 
-Overview
+# Overview
 
 Traditional stock interfaces are built around buying and selling.
 
@@ -32,9 +31,9 @@ A SharedStock Pack is an on-chain digital asset that can be transferred before i
 
 This creates a simple way to give someone a piece of the future without deciding which company they receive beforehand.
 
-⸻
 
-Why SharedStocks?
+
+# Why SharedStocks?
 
 PreStocks brings tokenized pre-IPO exposure on-chain.
 
@@ -44,9 +43,9 @@ The goal is to make discovering and owning PreStocks feel less like using a trad
 
 PreStocks made private-market exposure tradable. SharedStocks makes it giftable.
 
-⸻
 
-Features
+
+# Features
 
 * Purchase SharedStock Packs with USDC
 * Own packs directly on Solana
@@ -59,9 +58,9 @@ Features
 * Fully on-chain ownership and pack state
 * No centralized account required
 
-⸻
 
-Architecture
+
+# Architecture
 
 SharedStocks is designed to keep the core application state on Solana.
 
@@ -84,9 +83,9 @@ The frontend reads and writes directly to Solana for application state.
 
 PreStocks data may be used for asset discovery and display information, while blockchain state remains the source of truth for SharedStocks ownership.
 
-⸻
 
-Tech Stack
+
+# Tech Stack
 
 * Solana
 * Rust
@@ -99,9 +98,9 @@ Tech Stack
 * USDC
 * PreStocks
 
-⸻
 
-Getting Started
+
+# Getting Started
 
 Requirements
 
@@ -111,7 +110,7 @@ Requirements
 * Anchor CLI
 * A compatible Solana wallet
 
-Clone
+# Clone
 
 git clone https://github.com/uniquebeing-base-eth/sharedstocks.git
 cd sharedstocks
@@ -143,9 +142,9 @@ bun run dev
 
 The application will be available locally at the Vite development URL.
 
-⸻
 
-Building on SharedStocks
+
+# Building on SharedStocks
 
 SharedStocks is intended to be more than a hackathon prototype.
 
@@ -166,9 +165,9 @@ The core idea is simple:
 
 SharedStocks assets should be composable building blocks on Solana.
 
-⸻
 
-Project Structure
+
+# Project Structure
 
 sharedstocks/
 ├── app/              # Frontend application
@@ -180,9 +179,9 @@ sharedstocks/
 
 The exact structure may evolve as development continues.
 
-⸻
 
-On-Chain First
+
+# On-Chain First
 
 SharedStocks does not rely on a centralized database for core ownership.
 
@@ -196,7 +195,7 @@ The application treats Solana as the source of truth for:
 
 The frontend is an interface for interacting with the underlying on-chain system.
 
-⸻
+
 
 PreStocks
 
@@ -210,17 +209,17 @@ PreStocks
 PreStocks Products
 PreStocks Ecosystem
 
-⸻
 
-Hackathon
+
+# Hackathon
 
 SharedStocks was built for the Stocklana Hackathon, with a focus on the PreStocks bounty.
 
 The project exclusively focuses on PreStocks assets and explores a new way to discover, share, and interact with tokenized pre-IPO assets on Solana.
 
-⸻
 
-Status
+
+# Status
 
 SharedStocks is currently in active development.
 
@@ -228,7 +227,7 @@ Live application:
 
 sharedstocks.signalify.xyz
 
-⸻
+
 
 License
 
