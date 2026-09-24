@@ -165,7 +165,16 @@ function SharedStocksApp() {
             <h1 className="brand-name">SharedStocks</h1>
           </div>
 
-          <WalletMultiButton className="wallet-button" />
+          <div className="topbar-actions">
+            <button
+              type="button"
+              className={activeView === 'explore' ? 'nav-button active' : 'nav-button'}
+              onClick={() => setActiveView('explore')}
+            >
+              Explore
+            </button>
+            <WalletMultiButton className="wallet-button" />
+          </div>
         </header>
 
         {activeView === 'explore' ? (
