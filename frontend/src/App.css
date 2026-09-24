@@ -37,6 +37,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 
 .brand-mark {
@@ -80,7 +81,6 @@
   cursor: pointer;
 }
 
-.explore-link,
 .back-link {
   border: 0;
   background: transparent;
@@ -89,11 +89,8 @@
   cursor: pointer;
 }
 
-.explore-link {
-  margin-left: auto;
-}
-
 .wallet-button {
+  margin-left: auto;
   min-width: 190px;
   border: 1px solid rgba(72, 67, 109, 0.2) !important;
   background: rgba(255, 255, 255, 0.28) !important;
@@ -1003,11 +1000,22 @@
 @media (max-width: 540px) {
   .app-shell { padding: 12px 8px; }
   .content-card { border-radius: 26px; padding: 12px 12px 20px; }
-  .brand-name { font-size: 1rem; }
-  .topbar { align-items: stretch; }
-  .home-link,
-  .explore-link { margin-left: 0; }
-  .wallet-button { width: 100%; min-width: unset; }
+  .brand-name { font-size: 0.96rem; }
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .brand-wrap { min-width: 0; }
+  .wallet-button {
+    margin-left: auto;
+    width: auto !important;
+    min-width: 0;
+    max-width: 160px;
+    padding: 9px 12px !important;
+    justify-self: end;
+  }
   .hero-copy h2 { font-size: clamp(2.5rem, 17vw, 4rem); }
   .cta-stack { width: 100%; }
   .primary-button, .secondary-button { max-width: none; }

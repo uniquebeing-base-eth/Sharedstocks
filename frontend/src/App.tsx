@@ -165,14 +165,6 @@ function SharedStocksApp() {
             <h1 className="brand-name">SharedStocks</h1>
           </div>
 
-          <button type="button" className="home-link" onClick={() => setActiveView('home')}>
-            Home
-          </button>
-
-          <button type="button" className="explore-link" onClick={() => setActiveView('explore')}>
-            Explore stocks
-          </button>
-
           <WalletMultiButton className="wallet-button" />
         </header>
 
