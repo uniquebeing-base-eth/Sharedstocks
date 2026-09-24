@@ -11,212 +11,270 @@ import '@solana/wallet-adapter-react-ui/styles.css'
 import './App.css'
 
 const PACK_OPTIONS = [1, 10, 20, 50, 100, 200]
-const TIER_DATA = [
-  { name: 'Common', range: '$0.02–$0.05', weight: '80%' },
-  { name: 'Uncommon', range: '$0.05–$0.10', weight: '15%' },
-  { name: 'Rare', range: '$0.10–$0.25', weight: '4%' },
-  { name: 'Ultra Rare', range: '$0.25–$0.50', weight: '0.9%' },
-  { name: 'Jackpot', range: '$0.50+', weight: '0.1%' },
-]
 
-const RECENT_REWARDS = [
-  { pack: '#1842', reward: '$0.08', status: 'Common' },
-  { pack: '#1843', reward: '$0.16', status: 'Rare' },
-  { pack: '#1844', reward: '$0.41', status: 'Ultra Rare' },
-  { pack: '#1845', reward: '$0.03', status: 'Common' },
-]
+type ViewState = 'home' | 'buy' | 'packs' | 'portfolio'
+type PackFilter = 'all' | 'unpacked' | 'opened' | 'gifted'
 
 function SharedStocksApp() {
-  const [quantity, setQuantity] = useState(10)
-  const [activeTab, setActiveTab] = useState('buy')
-  const [notice, setNotice] = useState('')
+  const [activeView, setActiveView] = useState<ViewState>('home')
+  const [quantity, setQuantity] = useState(20)
+  const [packFilter, setPackFilter] = useState<PackFilter>('all')
   const { publicKey } = useWallet()
 
   const total = (quantity * 0.1).toFixed(2)
 
+  const onchainMetrics = [
+    { label: 'Packs bought', value: '--', hint: 'Live data after contract launch' },
+    { label: 'Packs gifted', value: '--', hint: 'Gift transfers from chain' },
+    { label: 'Packs opened', value: '--', hint: 'Claimable and opened packs' },
+    { label: 'Total value', value: '--', hint: 'USDC value from on-chain records' },
+  ]
+
+  const packCards = [
+    { id: 'Unpacked', count: 0, tone: 'purple' },
+    { id: 'Opened', count: 0, tone: 'blue' },
+    { id: 'Gifted', count: 0, tone: 'orange' },
+  ]
+
   return (
     <main className="app-shell">
-      <header className="topbar">
-        <div className="brand-wrap">
-          <div className="brand-mark">S</div>
-          <div>
-            <div className="brand-name">SharedStocks</div>
-            <div className="brand-tag">Give a piece of the future.</div>
-          </div>
-        </div>
-
-        <nav className="topnav" aria-label="Main navigation">
-          <button className={activeTab === 'buy' ? 'nav-link active' : 'nav-link'} onClick={() => setActiveTab('buy')}>Buy packs</button>
-          <button className={activeTab === 'packs' ? 'nav-link active' : 'nav-link'} onClick={() => setActiveTab('packs')}>My packs</button>
-          <a className="nav-link" href="#how-it-works">How it works</a>
-        </nav>
-
-        <WalletMultiButton className="wallet-button" />
-      </header>
-
-      {notice && <div className="notice" role="status">{notice}</div>}
-
-      <section className="hero">
-        <div className="hero-copy">
-          <div className="eyebrow">Solana / Devnet</div>
-          <h1>A small share of something bigger.</h1>
-          <p>
-            A SharedStocks pack is a giftable on-chain collectible with a chance to unlock
-            a slice of an eligible PreStock. Open yours, or send a little future to someone.
-          </p>
-
-          <div className="cta-row">
-            <a href="#buy" className="primary-button">
-              Buy packs
-            </a>
-            <a href="#how-it-works" className="secondary-button">
-              View flow
-            </a>
+      <div className="content-card">
+        <header className="topbar">
+          <div className="brand-wrap">
+            <div className="brand-mark" aria-hidden="true">
+              <span className="brand-mark-inner">S</span>
+            </div>
+            <h1 className="brand-name">SharedStocks</h1>
           </div>
 
-          <div className="stat-grid">
-            <div>
-              <strong>$0.10</strong>
-              <span>per pack</span>
+          <button type="button" className="home-link" onClick={() => setActiveView('home')}>
+            Home
+          </button>
+
+          <WalletMultiButton className="wallet-button" />
+        </header>
+
+        <section className="hero-panel">
+          <div className="hero-copy">
+            <div className="eyebrow">Pre-IPO Stocks, Made Giftable</div>
+
+            <h2>Give a piece of the future.</h2>
+
+            <p>
+              Buy stock packs, open them yourself, or gift unopened packs to someone you care about.
+            </p>
+
+            <div className="price-row">
+              <span className="price-icon" aria-hidden="true">◌</span>
+              <span>$0.10 per pack</span>
             </div>
-            <div>
-              <strong>5</strong>
-              <span>reward tiers</span>
-            </div>
-            <div>
-              <strong>100%</strong>
-              <span>on-chain truth</span>
+
+            <div className="powered-by">Powered by PreStocks</div>
+
+            <div className="cta-stack">
+              <button type="button" className="primary-button" onClick={() => setActiveView('buy')}>
+                Get Stock Packs <span aria-hidden="true">→</span>
+              </button>
+              <button type="button" className="secondary-button" onClick={() => setActiveView('packs')}>
+                My Packs
+              </button>
             </div>
           </div>
-        </div>
 
-        <div className="purchase-panel" id="buy">
-          <div className="panel-header">
-            <div>
-              <div className="panel-label">Pack purchase</div>
-              <div className="panel-title">Buy SharedStocks</div>
+          <div className="hero-visual" aria-label="SharedStocks gift box art">
+            <div className="visual-glow" />
+            <div className="gift-box">
+              <div className="gift-box-lid" />
+              <div className="gift-box-base" />
+              <div className="gift-flower">
+                <span className="flower-petal" />
+                <span className="flower-petal" />
+                <span className="flower-petal" />
+                <span className="flower-center" />
+              </div>
             </div>
-            <span className="price-badge">$0.10 each</span>
+          </div>
+        </section>
+
+        <section className="stats-panel">
+          {onchainMetrics.map((metric) => (
+            <div key={metric.label} className="stat-card">
+              <span>{metric.label}</span>
+              <strong>{metric.value}</strong>
+              <small>{metric.hint}</small>
+            </div>
+          ))}
+        </section>
+
+        <section className="packs-panel">
+          <div className="section-head">
+            <div>
+              <span className="panel-label">Portfolio</span>
+              <h3>My Packs</h3>
+            </div>
+            <button type="button" className="mini-button" onClick={() => setActiveView('packs')}>
+              View all
+            </button>
           </div>
 
-          <div className="quantity-selector">
-            {PACK_OPTIONS.map((option) => (
+          <div className="pack-filter-row">
+            {(['all', 'unpacked', 'opened', 'gifted'] as PackFilter[]).map((filter) => (
               <button
-                key={option}
+                key={filter}
                 type="button"
-                className={option === quantity ? 'quantity-btn active' : 'quantity-btn'}
-                onClick={() => setQuantity(option)}
+                className={packFilter === filter ? 'filter-chip active' : 'filter-chip'}
+                onClick={() => setPackFilter(filter)}
               >
-                {option}
+                {filter === 'all' ? 'All' : filter.charAt(0).toUpperCase() + filter.slice(1)}
               </button>
             ))}
           </div>
 
-          <div className="total-card">
-            <span>Total</span>
-            <strong>${total}</strong>
-          </div>
-
-          <div className="detail-row">
-            <span>Selected packs</span>
-            <strong>{quantity}</strong>
-          </div>
-
-          <div className="detail-row">
-            <span>Wallet</span>
-            <strong>{publicKey ? `${publicKey.toString().slice(0, 4)}...${publicKey.toString().slice(-4)}` : 'Not connected'}</strong>
-          </div>
-
-          <button type="button" className="checkout-button" onClick={() => setNotice(publicKey ? `Purchase queued: ${quantity} pack${quantity === 1 ? '' : 's'} for $${total}.` : 'Connect a wallet to purchase packs.') }>
-            {publicKey ? 'Confirm purchase' : 'Connect wallet to buy'}
-          </button>
-          <p className="fine-print">$0.10 buys the pack itself. The eventual allocation is randomized and is not guaranteed to equal the purchase price.</p>
-        </div>
-      </section>
-
-      {activeTab === 'packs' && <section className="inventory-section" id="packs">
-        <div className="section-heading">
-          <span className="eyebrow">Wallet inventory</span>
-          <h2>Your unopened pieces of the future.</h2>
-        </div>
-        <div className="pack-grid">
-          {[1842, 1843, 1844].map((pack, index) => (
-            <article className="pack-card" key={pack}>
-              <div className="pack-art"><span>SS</span><small>PACK #{pack}</small></div>
-              <div className="pack-card-copy"><strong>SharedStock #{pack}</strong><span>UNOPENED · NFT</span></div>
-              <div className="pack-actions">
-                <button type="button" onClick={() => setNotice(`Pack #${pack} is ready to open on-chain.`)}>Open</button>
-                <button type="button" className="ghost-button" onClick={() => setNotice(`Gift link prepared for pack #${pack}. Ownership still requires an on-chain transfer.`)}>Gift</button>
+          <div className="pack-summary-grid">
+            {packCards.map((card) => (
+              <div key={card.id} className={`pack-box ${card.tone}`}>
+                <div className="pack-box-visual" aria-hidden="true" />
+                <div className="pack-box-copy">
+                  <small>{card.id}</small>
+                  <strong>{card.count}</strong>
+                </div>
               </div>
-              {index === 0 && <span className="pack-highlight">Latest</span>}
-            </article>
-          ))}
-        </div>
-      </section>}
-
-      <section className="reward-section" id="rewards">
-        <div className="section-heading">
-          <span className="eyebrow">Reward model</span>
-          <h2>Higher value tiers are intentionally rarer.</h2>
-        </div>
-
-        <div className="reward-grid">
-          {TIER_DATA.map((tier) => (
-            <article key={tier.name} className="reward-card">
-              <div className="reward-chip">{tier.name}</div>
-              <div className="reward-range">{tier.range}</div>
-              <div className="reward-weight">{tier.weight} of packs</div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="flow-section" id="how-it-works">
-        <div className="section-heading">
-          <span className="eyebrow">How it works</span>
-          <h2>Everything important lives on-chain.</h2>
-        </div>
-
-        <div className="flow-grid">
-          <div className="flow-step">
-            <span>1</span>
-            <h3>Buy</h3>
-            <p>Buy pack(s) with USDC and mint the unique pack NFT to the buyer.</p>
+            ))}
           </div>
-          <div className="flow-step">
-            <span>2</span>
-            <h3>Gift</h3>
-            <p>Transfer unopened packs to another wallet without a backend database.</p>
-          </div>
-          <div className="flow-step">
-            <span>3</span>
-            <h3>Open</h3>
-            <p>Only the pack owner can open it, and the action triggers verifiable randomness.</p>
-          </div>
-          <div className="flow-step">
-            <span>4</span>
-            <h3>Claim</h3>
-            <p>Rewards are allocated from configured tiers and claim status is validated on-chain.</p>
-          </div>
-        </div>
-      </section>
+        </section>
 
-      <section className="recent-section">
-        <div className="section-heading">
-          <span className="eyebrow">Recent pack outcomes</span>
-          <h2>Sample reward distribution</h2>
-        </div>
+        <section className="simple-section">
+          <h3>It&apos;s simple</h3>
+          <p>A few steps to owning a piece of tomorrow&apos;s biggest companies.</p>
 
-        <div className="recent-list">
-          {RECENT_REWARDS.map((item) => (
-            <div key={item.pack} className="recent-item">
-              <span>Pack {item.pack}</span>
-              <strong>{item.reward}</strong>
-              <em>{item.status}</em>
+          <div className="simple-grid">
+            <div className="simple-step">
+              <div className="simple-icon coin-icon" aria-hidden="true">◍</div>
+              <div className="step-copy">
+                <strong>Buy</strong>
+                <span>Get stock packs for $0.10 each.</span>
+              </div>
             </div>
-          ))}
-        </div>
-      </section>
+
+            <div className="simple-step">
+              <div className="simple-icon gift-icon" aria-hidden="true">✦</div>
+              <div className="step-copy">
+                <strong>Open or Gift</strong>
+                <span>Keep it for yourself or send it to someone special.</span>
+              </div>
+            </div>
+
+            <div className="simple-step">
+              <div className="simple-icon chart-icon" aria-hidden="true">↗</div>
+              <div className="step-copy">
+                <strong>Receive a PreStock</strong>
+                <span>Get a real pre-IPO stock, on-chain.</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="info-section">
+          <div className="info-panel">
+            <span className="panel-label">How it works</span>
+            <h3>From pack to real pre-IPO ownership.</h3>
+            <ol>
+              <li>Connect your wallet and buy a pack with USDC.</li>
+              <li>Open or gift the pack from your wallet at any time.</li>
+              <li>On-chain resolution assigns the reward and records the receipt.</li>
+            </ol>
+          </div>
+
+          <div className="info-panel">
+            <span className="panel-label">Beginner guide</span>
+            <h3>What to expect before the contract is live.</h3>
+            <ul>
+              <li>Wallet connection is required before any pack action is available.</li>
+              <li>Pack counts, gifts, open status, and value update from the chain when live.</li>
+              <li>All on-chain data stays wallet-owned and verifiable from the program itself.</li>
+            </ul>
+          </div>
+        </section>
+
+        {activeView !== 'home' && (
+          <div className="sheet-backdrop" onClick={() => setActiveView('home')}>
+            <div className="action-sheet" onClick={(event) => event.stopPropagation()}>
+              <button type="button" className="sheet-close" onClick={() => setActiveView('home')} aria-label="Close panel">
+                ×
+              </button>
+
+              {activeView === 'buy' && (
+                <>
+                  <div className="sheet-header">Get Stock Packs</div>
+                  <p className="sheet-subtitle">Choose how many packs you want to buy.<br />Each pack costs $0.10 USDC.</p>
+
+                  <div className="picker-list">
+                    {PACK_OPTIONS.map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        className={option === quantity ? 'picker-option active' : 'picker-option'}
+                        onClick={() => setQuantity(option)}
+                      >
+                        <span>{option}</span>
+                        <strong>${(option * 0.1).toFixed(2)}</strong>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="purchase-summary">
+                    <div>
+                      <span>Quantity</span>
+                      <strong>{quantity}</strong>
+                    </div>
+                    <div>
+                      <span>Total</span>
+                      <strong>${total} USDC</strong>
+                    </div>
+                  </div>
+
+                  <button type="button" className="sheet-primary" onClick={() => publicKey && setActiveView('home')}>
+                    {publicKey ? 'Buy Packs' : 'Connect wallet'}
+                  </button>
+                </>
+              )}
+
+              {activeView === 'packs' && (
+                <>
+                  <div className="sheet-header">My Packs</div>
+                  <div className="pack-status-grid">
+                    <div className="pack-status-card purple">
+                      <span>Unpacked</span>
+                      <strong>0</strong>
+                    </div>
+                    <div className="pack-status-card blue">
+                      <span>Opened</span>
+                      <strong>0</strong>
+                    </div>
+                    <div className="pack-status-card orange">
+                      <span>Gifted</span>
+                      <strong>0</strong>
+                    </div>
+                  </div>
+                  <div className="portfolio-note">
+                    Pack records will appear here once the contract is live and wallet data is available on-chain.
+                  </div>
+                </>
+              )}
+
+              {activeView === 'portfolio' && (
+                <>
+                  <div className="sheet-header">Portfolio</div>
+                  <div className="portfolio-placeholder">
+                    <div className="portfolio-badge">No on-chain holdings yet</div>
+                    <div className="portfolio-note">Connect a wallet to load your actual holdings from the chain.</div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </main>
   )
 }
