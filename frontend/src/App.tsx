@@ -6,14 +6,132 @@ import {
 import { WalletModalProvider, WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets'
 import { clusterApiUrl } from '@solana/web3.js'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import '@solana/wallet-adapter-react-ui/styles.css'
 import './App.css'
+import { fetchPreStocks, type PreStock } from './prestocksApi'
 
 const PACK_OPTIONS = [1, 10, 20, 50, 100, 200]
 
-type ViewState = 'home' | 'buy' | 'packs' | 'portfolio'
+type ViewState = 'home' | 'buy' | 'packs' | 'portfolio' | 'explore'
 type PackFilter = 'all' | 'unpacked' | 'opened' | 'gifted'
+
+function formatUsd(value: number | undefined): string {
+  return value === undefined
+    ? '--'
+    : `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+function formatValue(value: number | undefined): string {
+  if (value === undefined) return '--'
+  if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(1)}B`
+  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`
+  return `$${value.toLocaleString()}`
+}
+
+function ExploreView({ onBack }: { onBack: () => void }) {
+  const [stocks, setStocks] = useState<PreStock[]>([])
+  const [selectedStock, setSelectedStock] = useState<PreStock | null>(null)
+  const [query, setQuery] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadStocks = (forceRefresh = false) => {
+    setLoading(true)
+    setError(null)
+    fetchPreStocks(forceRefresh)
+      .then(setStocks)
+      .catch(() => setError('PreStocks is unavailable right now. Please try again.'))
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    fetchPreStocks()
+      .then(setStocks)
+      .catch(() => setError('PreStocks is unavailable right now. Please try again.'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const filteredStocks = stocks.filter((stock) => {
+    const searchText = `${stock.name} ${stock.symbol}`.toLowerCase()
+    return searchText.includes(query.trim().toLowerCase())
+  })
+
+  return (
+    <section className="explore-view">
+      <div className="explore-heading">
+        <div>
+          <button type="button" className="back-link" onClick={onBack}>← Back home</button>
+          <span className="panel-label">PreStocks discovery</span>
+          <h2>Explore Pre-IPO Stocks</h2>
+          <p>Discover companies available through PreStocks.</p>
+        </div>
+        <button type="button" className="mini-button" onClick={() => loadStocks(true)} disabled={loading}>
+          Refresh
+        </button>
+      </div>
+
+      <label className="search-field">
+        <span aria-hidden="true">⌕</span>
+        <input
+          type="search"
+          placeholder="Search companies or symbols"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      </label>
+
+      {loading && <div className="explore-state">Loading the latest PreStocks...</div>}
+      {error && (
+        <div className="explore-state error-state">
+          <strong>{error}</strong>
+          <button type="button" className="secondary-button" onClick={() => loadStocks(true)}>Try again</button>
+        </div>
+      )}
+      {!loading && !error && filteredStocks.length === 0 && (
+        <div className="explore-state">No PreStocks match your search.</div>
+      )}
+
+      {!loading && !error && filteredStocks.length > 0 && (
+        <div className="stock-grid">
+          {filteredStocks.map((stock) => (
+            <button type="button" className="stock-card" key={stock.symbol} onClick={() => setSelectedStock(stock)}>
+              {stock.image ? <img src={stock.image} alt="" className="stock-logo" /> : <div className="stock-logo fallback-logo">{stock.symbol.slice(0, 1)}</div>}
+              <div className="stock-card-copy">
+                <span className="stock-symbol">{stock.symbol}</span>
+                <strong>{stock.name.replace(/ PreStocks$/, '')}</strong>
+                <span className="stock-price">{formatUsd(stock.tokenPrice)}</span>
+                <small>Valuation: {formatValue(stock.impliedValuation ?? stock.markValuation)}</small>
+              </div>
+              <span className="stock-arrow" aria-hidden="true">↗</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {selectedStock && (
+        <div className="detail-backdrop" onClick={() => setSelectedStock(null)}>
+          <article className="stock-detail" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="sheet-close" onClick={() => setSelectedStock(null)} aria-label="Close details">×</button>
+            {selectedStock.image ? <img src={selectedStock.image} alt="" className="detail-logo" /> : <div className="detail-logo fallback-logo">{selectedStock.symbol.slice(0, 1)}</div>}
+            <span className="stock-symbol">{selectedStock.symbol}</span>
+            <h3>{selectedStock.name.replace(/ PreStocks$/, '')}</h3>
+            <div className="detail-metrics">
+              <div><span>Token price</span><strong>{formatUsd(selectedStock.tokenPrice)}</strong></div>
+              <div><span>Mark price</span><strong>{formatUsd(selectedStock.markPrice)}</strong></div>
+              <div><span>Valuation</span><strong>{formatValue(selectedStock.impliedValuation ?? selectedStock.markValuation)}</strong></div>
+              <div><span>Token supply</span><strong>{selectedStock.supply?.toLocaleString() ?? '--'}</strong></div>
+            </div>
+            <p className="detail-description">{selectedStock.description ?? 'No description was provided by PreStocks.'}</p>
+            <div className="detail-address"><span>PreStocks mint address</span><code>{selectedStock.contractAddress ?? 'Not provided'}</code></div>
+            {selectedStock.externalUrl && <a className="sheet-primary detail-link" href={selectedStock.externalUrl} target="_blank" rel="noreferrer">View on PreStocks ↗</a>}
+          </article>
+        </div>
+      )}
+    </section>
+  )
+}
 
 function SharedStocksApp() {
   const [activeView, setActiveView] = useState<ViewState>('home')
@@ -51,8 +169,17 @@ function SharedStocksApp() {
             Home
           </button>
 
+          <button type="button" className="explore-link" onClick={() => setActiveView('explore')}>
+            Explore stocks
+          </button>
+
           <WalletMultiButton className="wallet-button" />
         </header>
+
+        {activeView === 'explore' ? (
+          <ExploreView onBack={() => setActiveView('home')} />
+        ) : (
+          <>
 
         <section className="hero-panel">
           <div className="hero-copy">
@@ -195,8 +322,10 @@ function SharedStocksApp() {
             </ul>
           </div>
         </section>
+          </>
+        )}
 
-        {activeView !== 'home' && (
+        {activeView !== 'home' && activeView !== 'explore' && (
           <div className="sheet-backdrop" onClick={() => setActiveView('home')}>
             <div className="action-sheet" onClick={(event) => event.stopPropagation()}>
               <button type="button" className="sheet-close" onClick={() => setActiveView('home')} aria-label="Close panel">
