@@ -1,4 +1,5 @@
 export const PRESTOCKS_API_URL = 'https://prestocks.com/api/prestocks'
+const PRESTOCKS_SNAPSHOT_URL = '/prestocks.json'
 
 export type PreStock = {
   name: string
@@ -75,7 +76,9 @@ export async function fetchPreStocks(forceRefresh = false): Promise<PreStock[]> 
 
   if (pendingRequest) return pendingRequest
 
-  pendingRequest = fetch(PRESTOCKS_API_URL)
+  pendingRequest = fetch(PRESTOCKS_SNAPSHOT_URL, {
+    cache: forceRefresh ? 'no-store' : 'default',
+  })
     .then(async (response) => {
       if (!response.ok) throw new Error(`PreStocks returned ${response.status}`)
       const payload: unknown = await response.json()
