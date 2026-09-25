@@ -154,6 +154,33 @@ function parseUiAmount(rawAmount: string, decimals: number): number {
   return Number(rawAmount) / 10 ** decimals
 }
 
+async function confirmTransactionWithRetry(
+  connection: Connection,
+  signature: string,
+  commitment: 'processed' | 'confirmed' | 'finalized' = 'confirmed',
+  timeoutMs = 90_000,
+): Promise<void> {
+  const startedAt = Date.now()
+  try {
+    await connection.confirmTransaction(signature, commitment)
+    return
+  } catch {
+    // Some RPC providers are slow or temporarily unavailable, so fall back to a status poll.
+  }
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const statuses = await connection.getSignatureStatuses([signature], { searchTransactionHistory: true })
+    const status = statuses.value?.[0]
+    if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') return
+    if (status?.err) {
+      throw new Error(`Transaction failed on Solana: ${JSON.stringify(status.err)}`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+  }
+
+  throw new Error(`Transaction was not confirmed in ${timeoutMs / 1000} seconds. It is unknown if it succeeded or failed. Check signature ${signature} using the Solana Explorer or CLI tools.`)
+}
+
 export async function loadWalletHoldings(
   connection: Connection,
   owner: PublicKey,
@@ -275,7 +302,7 @@ export async function executePreStockSwap({
   const signature = await wallet.sendTransaction(transaction, connection)
   onStatus?.('submitted')
   onStatus?.('confirming')
-  await connection.confirmTransaction(signature, 'confirmed')
+  await confirmTransactionWithRetry(connection, signature, 'confirmed', 90_000)
   onStatus?.('confirmed')
   const holding = await readActualOutput(connection, signature, wallet.publicKey, mint.toBase58())
   onStatus?.('received')
@@ -331,7 +358,7 @@ export async function giftPreStock({
   ))
 
   const signature = await wallet.sendTransaction(transaction, connection)
-  await connection.confirmTransaction(signature, 'confirmed')
+  await confirmTransactionWithRetry(connection, signature, 'confirmed', 90_000)
   const recipientHoldings = await loadWalletHoldings(connection, recipient, new Set([mint.toBase58()]))
   const received = recipientHoldings.find((item) => item.mint === mint.toBase58())
   const receivedRaw = BigInt(received?.rawAmount ?? '0')
