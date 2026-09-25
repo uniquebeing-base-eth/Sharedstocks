@@ -4,6 +4,7 @@
   "scripts": {
     "install:frontend": "npm install --prefix frontend",
     "build": "npm run build --prefix frontend",
-    "dev": "npm run dev --prefix frontend -- --host 0.0.0.0"
+    "dev": "npm run dev --prefix frontend -- --host 0.0.0.0",
+    "verify:reward-matrix": "node scripts/compute-reward-matrix.mjs"
   }
 }

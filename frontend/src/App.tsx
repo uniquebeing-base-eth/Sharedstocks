@@ -5,7 +5,7 @@ import {
 } from '@solana/wallet-adapter-react'
 import { WalletModalProvider, WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets'
-import { clusterApiUrl } from '@solana/web3.js'
+import { clusterApiUrl, type Cluster } from '@solana/web3.js'
 import { useEffect, useMemo, useState } from 'react'
 import '@solana/wallet-adapter-react-ui/styles.css'
 import './App.css'
@@ -410,7 +410,10 @@ function SharedStocksApp() {
 }
 
 function App() {
-  const endpoint = useMemo(() => clusterApiUrl('devnet'), [])
+  const endpoint = useMemo(() => {
+    const network = (import.meta.env.VITE_SOLANA_NETWORK ?? 'mainnet-beta') as Cluster
+    return import.meta.env.VITE_SOLANA_RPC_URL ?? clusterApiUrl(network)
+  }, [])
   const wallets = useMemo(
     () => [new PhantomWalletAdapter(), new SolflareWalletAdapter()],
     [],

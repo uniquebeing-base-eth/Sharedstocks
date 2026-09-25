@@ -7,7 +7,7 @@ use anchor_spl::token_interface::{self, get_mint_extension_data, Mint as Interfa
 use spl_token_2022::extension::transfer_fee::TransferFeeConfig;
 use switchboard_on_demand::{get_sb_program_id, RandomnessAccountData};
 
-declare_id!("11111111111111111111111111111111");
+declare_id!("HCqpbmtJqBaTPoD23QLCQDTF8shAR2Xa82CNoMikZAGj");
 
 const MAX_TIERS: usize = 5;
 const MAX_ASSETS: usize = 32;
@@ -114,6 +114,14 @@ pub mod sharedstocks {
     pub fn buy_packs(ctx: Context<BuyPacks>, quantity: u64) -> Result<()> {
         require!(!ctx.accounts.config.paused, ErrorCode::ProgramPaused);
         require!(quantity > 0, ErrorCode::InvalidQuantity);
+        require_keys_eq!(
+            *ctx.accounts.randomness_account.owner,
+            Pubkey::new_from_array(get_sb_program_id("mainnet").to_bytes()),
+            ErrorCode::InvalidRandomnessAccount
+        );
+        let randomness_data = RandomnessAccountData::parse(ctx.accounts.randomness_account.data.borrow())
+            .map_err(|_| error!(ErrorCode::InvalidRandomnessAccount))?;
+        require!(randomness_data.reveal_slot == 0, ErrorCode::RandomnessAlreadyRevealed);
 
         let total_cost = quantity
             .checked_mul(ctx.accounts.config.pack_price)
@@ -153,6 +161,7 @@ pub mod sharedstocks {
         pack.selection_mint = None;
         pack.selection_amount = 0;
         pack.randomness = [0; 32];
+        pack.randomness_account = ctx.accounts.randomness_account.key();
         pack.claimed = false;
         pack.bump = ctx.bumps.pack;
 
@@ -183,6 +192,11 @@ pub mod sharedstocks {
         require!(pack.id == pack_id, ErrorCode::PackIdMismatch);
         require!(pack.owner == ctx.accounts.owner.key(), ErrorCode::NotPackOwner);
         require!(pack.status == PackStatus::Unopened, ErrorCode::PackAlreadyOpened);
+        require_keys_eq!(
+            pack.randomness_account,
+            ctx.accounts.randomness_account.key(),
+            ErrorCode::RandomnessAccountMismatch
+        );
         require_keys_eq!(
             *ctx.accounts.randomness_account.owner,
             Pubkey::new_from_array(get_sb_program_id("mainnet").to_bytes()),
@@ -315,6 +329,8 @@ pub struct BuyPacks<'info> {
     #[account(mut)]
     pub usdc_mint: Account<'info, Mint>,
     pub token_program: Program<'info, Token>,
+    /// CHECK: Validated against the deployed Switchboard On-Demand mainnet program in the instruction.
+    pub randomness_account: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -406,12 +422,13 @@ pub struct Pack {
     pub selection_mint: Option<Pubkey>,
     pub selection_amount: u64,
     pub randomness: [u8; 32],
+    pub randomness_account: Pubkey,
     pub claimed: bool,
     pub bump: u8,
 }
 
 impl Pack {
-    pub const SPACE: usize = 8 + 32 + 8 + 1 + (1 + 32) + 8 + 32 + 1 + 1;
+    pub const SPACE: usize = 8 + 32 + 8 + 1 + (1 + 32) + 8 + 32 + 32 + 1 + 1;
 }
 
 #[account]
@@ -473,6 +490,8 @@ pub enum ErrorCode {
     #[msg("The recipient token account does not match the reward mint.")] InvalidUserTokenAccount,
     #[msg("The reward mint does not expose a valid Token-2022 transfer-fee configuration.")] InvalidTransferFeeConfig,
     #[msg("The randomness account is not a valid Switchboard On-Demand mainnet account.")] InvalidRandomnessAccount,
+    #[msg("The selected Switchboard randomness account has already been revealed.")] RandomnessAlreadyRevealed,
+    #[msg("The randomness account does not match the one committed at purchase.")] RandomnessAccountMismatch,
 }
 
 fn find_asset(asset_mints: [Pubkey; MAX_ASSETS], mint: Pubkey) -> Result<usize> {

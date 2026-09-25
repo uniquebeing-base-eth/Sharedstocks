@@ -6,10 +6,10 @@
     "image": "https://www.prestocks.com/logos/anduril.png",
     "external_url": "https://www.prestocks.com/anduril",
     "contract_address": "PresTj4Yc2bAR197Er7wz4UUKSfqt6FryBEdAriBoQB",
-    "markPrice": 153.9652542,
-    "markValuation": 136212915246,
-    "tokenPrice": 161.19102794662345,
-    "impliedValuation": 142605550468,
+    "markPrice": 155.7500097,
+    "markValuation": 137791886754,
+    "tokenPrice": 164.05092896928397,
+    "impliedValuation": 145135702206,
     "supply": 11805.817985464
   },
   {
@@ -19,11 +19,11 @@
     "image": "https://www.prestocks.com/logos/anthropic.png",
     "external_url": "https://www.prestocks.com/anthropic",
     "contract_address": "Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw",
-    "markPrice": 1041.56042263,
-    "markValuation": 1706433950281,
-    "tokenPrice": 1063.5043459623112,
-    "impliedValuation": 1742385638693,
-    "supply": 7381.799140479
+    "markPrice": 1051.54764891,
+    "markValuation": 1722796459477,
+    "tokenPrice": 1031.7096133200566,
+    "impliedValuation": 1690294938968,
+    "supply": 7381.787749079
   },
   {
     "name": "Figure AI PreStocks",
@@ -32,10 +32,10 @@
     "image": "https://www.prestocks.com/logos/figureai.png",
     "external_url": "https://www.prestocks.com/figureai",
     "contract_address": "PreZad18qfPtbxNpMtMuAuX2zVpvkEU8DnJx56faCWd",
-    "markPrice": 180.55851713,
-    "markValuation": 39366628934,
-    "tokenPrice": 176.83322129343975,
-    "impliedValuation": 38554413918,
+    "markPrice": 180.22675195,
+    "markValuation": 39294295172,
+    "tokenPrice": 175.2242822198877,
+    "impliedValuation": 38203621784,
     "supply": 3012.857155916
   },
   {
@@ -45,10 +45,10 @@
     "image": "https://www.prestocks.com/logos/kalshi.png",
     "external_url": "https://www.prestocks.com/kalshi",
     "contract_address": "PreLWGkkeqG1s4HEfFZSy9moCrJ7btsHuUtfcCeoRua",
-    "markPrice": 882.11074916,
-    "markValuation": 32084056952,
-    "tokenPrice": 886.3362757425293,
-    "impliedValuation": 32237747445,
+    "markPrice": 883.50927299,
+    "markValuation": 32134923942,
+    "tokenPrice": 868.5965814472186,
+    "impliedValuation": 31592520797,
     "supply": 904.865204987
   },
   {
@@ -58,11 +58,11 @@
     "image": "https://www.prestocks.com/logos/neuralink.png",
     "external_url": "https://www.prestocks.com/neuralink",
     "contract_address": "PrekqLJvJ3qVdXmBGDiexvwUTF4rLFDa6HWS4HJbw9S",
-    "markPrice": 336.38085113,
-    "markValuation": 64078886889,
-    "tokenPrice": 431.57526862117874,
-    "impliedValuation": 82212952161,
-    "supply": 2595.273807132
+    "markPrice": 336.69807084,
+    "markValuation": 64139315673,
+    "tokenPrice": 441.72046635544217,
+    "impliedValuation": 84145562106,
+    "supply": 2595.273597155
   },
   {
     "name": "OpenAI PreStocks",
@@ -71,11 +71,11 @@
     "image": "https://www.prestocks.com/logos/openai.png",
     "external_url": "https://www.prestocks.com/openai",
     "contract_address": "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
-    "markPrice": 1023.6543156821517,
-    "markValuation": 1268236346221,
-    "tokenPrice": 1329.663543401328,
-    "impliedValuation": 1647360449863,
-    "supply": 2826.338134404679
+    "markPrice": 1023.6895453958513,
+    "markValuation": 1268279993381,
+    "tokenPrice": 1335.4957826806883,
+    "impliedValuation": 1654586187810,
+    "supply": 2826.329077223626
   },
   {
     "name": "Polymarket PreStocks",
@@ -84,11 +84,11 @@
     "image": "https://www.prestocks.com/logos/polymarket.png",
     "external_url": "https://www.prestocks.com/polymarket",
     "contract_address": "Pre8AREmFPtoJFT8mQSXQLh56cwJmM7CFDRuoGBZiUP",
-    "markPrice": 144.34305398,
-    "markValuation": 15027876463,
-    "tokenPrice": 143.9320798315279,
-    "impliedValuation": 14985089030,
-    "supply": 4816.898364117
+    "markPrice": 144.92874318,
+    "markValuation": 15088853868,
+    "tokenPrice": 150.3739022180659,
+    "impliedValuation": 15655761489,
+    "supply": 4816.88574874
   },
   {
     "name": "SpaceX PreStocks",
@@ -97,10 +97,10 @@
     "image": "https://www.prestocks.com/logos/spacex.png",
     "external_url": "https://www.prestocks.com/spacex",
     "contract_address": "PreANxuXjsy2pvisWWMNB6YaJNzr7681wJJr2rHsfTh",
-    "markPrice": 147.73642720829136,
-    "markValuation": 1936988712286,
-    "tokenPrice": 118.25259154258102,
-    "impliedValuation": 1550422866892,
-    "supply": 43712.52932
+    "markPrice": 148.7729781407223,
+    "markValuation": 1950579046734,
+    "tokenPrice": 116.99428567854382,
+    "impliedValuation": 1533925078896,
+    "supply": 43712.529295695
   }
 ]

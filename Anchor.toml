@@ -6,7 +6,10 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-sharedstocks = "11111111111111111111111111111111"
+sharedstocks = "HCqpbmtJqBaTPoD23QLCQDTF8shAR2Xa82CNoMikZAGj"
+
+[programs.mainnet]
+sharedstocks = "HCqpbmtJqBaTPoD23QLCQDTF8shAR2Xa82CNoMikZAGj"
 
 [registry]
 url = "https://api.apr.dev"
