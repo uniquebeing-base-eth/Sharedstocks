@@ -233,7 +233,7 @@ export async function executePreStockSwap({
   wallet,
   outputMint,
   amountUsd,
-  slippageBps = 100,
+  slippageBps = 500,
   onStatus,
 }: {
   connection: Connection

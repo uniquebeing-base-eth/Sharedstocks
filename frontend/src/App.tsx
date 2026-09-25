@@ -213,6 +213,7 @@ function SharedStocksApp() {
         wallet: { publicKey, sendTransaction },
         outputMint: selectedStock.contractAddress,
         amountUsd: Number(total),
+        slippageBps: 500,
         onStatus: setPurchaseStatus,
       })
       setPurchaseSignature(result.signature)
