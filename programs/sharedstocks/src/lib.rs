@@ -1,15 +1,18 @@
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::{program::invoke_signed, system_instruction};
 use anchor_lang::accounts::interface::Interface;
 use anchor_lang::accounts::interface_account::InterfaceAccount;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
 use anchor_spl::token_2022_extensions::{self, TransferCheckedWithFee};
 use anchor_spl::token_interface::{get_mint_extension_data, Mint as InterfaceMint, TokenAccount as InterfaceTokenAccount, TokenInterface};
-use spl_token_2022::extension::transfer_fee::TransferFeeConfig;
+use spl_token_2022::extension::{transfer_fee::TransferFeeConfig, StateWithExtensions};
+use spl_token_2022::state::Account as Token2022Account;
 
 declare_id!("HCqpbmtJqBaTPoD23QLCQDTF8shAR2Xa82CNoMikZAGj");
 
 const MAX_TIERS: usize = 5;
 const MAX_ASSETS: usize = 7;
+const MAX_PACKS_PER_PURCHASE: u64 = 100;
 const BASIS_POINTS: u64 = 10_000;
 const USDC_DECIMALS: u8 = 6;
 const MAINNET_USDC_MINT: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
@@ -124,9 +127,10 @@ pub mod sharedstocks {
         Ok(())
     }
 
-    pub fn buy_packs(ctx: Context<BuyPacks>, quantity: u64) -> Result<()> {
+    pub fn buy_packs<'info>(ctx: Context<'_, '_, '_, 'info, BuyPacks<'info>>, quantity: u64) -> Result<()> {
         require!(!ctx.accounts.config.paused, ErrorCode::ProgramPaused);
-        require!(quantity > 0, ErrorCode::InvalidQuantity);
+        require!(quantity > 0 && quantity <= MAX_PACKS_PER_PURCHASE, ErrorCode::InvalidQuantity);
+        require!(ctx.remaining_accounts.len() == quantity as usize, ErrorCode::InvalidPackAccounts);
         require_keys_eq!(
             *ctx.accounts.randomness_account.owner,
             SWITCHBOARD_ON_DEMAND_MAINNET,
@@ -165,23 +169,58 @@ pub mod sharedstocks {
         );
         token::transfer_checked(cpi, total_cost, USDC_DECIMALS)?;
 
-        let pack = &mut ctx.accounts.pack;
-        pack.id = ctx.accounts.config.next_pack_id;
-        pack.owner = ctx.accounts.buyer.key();
-        pack.quantity = quantity;
-        pack.status = PackStatus::Unopened;
-        pack.selection_mint = None;
-        pack.selection_amount = 0;
-        pack.randomness = [0; 32];
-        pack.randomness_account = ctx.accounts.randomness_account.key();
-        pack.claimed = false;
-        pack.bump = ctx.bumps.pack;
+        let rent = Rent::get()?;
+        let pack_space = 8 + Pack::SPACE;
+        let pack_lamports = rent.minimum_balance(pack_space);
+        for (offset, pack_account) in ctx.remaining_accounts.iter().enumerate() {
+            let pack_id = ctx.accounts.config.next_pack_id
+                .checked_add(offset as u64)
+                .ok_or(ErrorCode::CounterOverflow)?;
+            let pack_id_bytes = pack_id.to_le_bytes();
+            let (pack_key, pack_bump) = Pubkey::find_program_address(
+                &[b"pack", pack_id_bytes.as_ref()],
+                &crate::ID,
+            );
+            require_keys_eq!(pack_account.key(), pack_key, ErrorCode::InvalidPackAccounts);
+            require_keys_eq!(*pack_account.owner, anchor_lang::system_program::ID, ErrorCode::InvalidPackAccounts);
+            require!(pack_account.data_is_empty(), ErrorCode::InvalidPackAccounts);
 
-        ctx.accounts.config.next_pack_id = ctx
-            .accounts
-            .config
-            .next_pack_id
-            .checked_add(1)
+            let create_account = system_instruction::create_account(
+                &ctx.accounts.buyer.key(),
+                &pack_key,
+                pack_lamports,
+                pack_space as u64,
+                &crate::ID,
+            );
+            invoke_signed(
+                &create_account,
+                &[
+                    ctx.accounts.buyer.to_account_info(),
+                    pack_account.clone(),
+                    ctx.accounts.system_program.to_account_info(),
+                ],
+                &[&[b"pack", pack_id_bytes.as_ref(), &[pack_bump]]],
+            )?;
+
+            let pack = Pack {
+                id: pack_id,
+                owner: ctx.accounts.buyer.key(),
+                quantity: 1,
+                status: PackStatus::Unopened,
+                selection_mint: None,
+                selection_amount: 0,
+                randomness: [0; 32],
+                randomness_account: ctx.accounts.randomness_account.key(),
+                claimed: false,
+                bump: pack_bump,
+            };
+            let mut data = pack_account.try_borrow_mut_data()?;
+            let mut serialized = &mut data[..];
+            pack.try_serialize(&mut serialized)?;
+        }
+
+        ctx.accounts.config.next_pack_id = ctx.accounts.config.next_pack_id
+            .checked_add(quantity)
             .ok_or(ErrorCode::CounterOverflow)?;
 
         Ok(())
@@ -218,14 +257,23 @@ pub mod sharedstocks {
         require!(randomness_data.reveal_slot == Clock::get()?.slot, ErrorCode::RandomnessUnavailable);
         let randomness = randomness_data.value;
 
-        let selected = select_asset(config, randomness).ok_or(ErrorCode::NoAvailableAssets)?;
         let tier_index = select_reward_tier(config.reward_tiers, randomness)
             .ok_or(ErrorCode::NoRewardTierConfigured)?;
+        let selected = select_funded_asset(config, randomness, tier_index, &ctx.remaining_accounts)?;
         let asset_index = find_asset(&config.asset_mints, selected.mint)?;
         let allocation_amount = config.asset_reward_amounts[asset_index][tier_index];
         require!(allocation_amount > 0, ErrorCode::NoRewardAmountConfigured);
         require!(ctx.accounts.asset_mint.key() == selected.mint, ErrorCode::AssetNotFound);
-        require!(ctx.accounts.asset_vault_ata.amount >= allocation_amount, ErrorCode::InsufficientAssetInventory);
+        require_keys_eq!(
+            ctx.accounts.asset_vault_ata.key(),
+            config.asset_vaults[asset_index],
+            ErrorCode::InvalidAssetVault
+        );
+        let gross_amount = reward_gross_amount(
+            &ctx.accounts.asset_mint.to_account_info(),
+            allocation_amount,
+        )?;
+        require!(ctx.accounts.asset_vault_ata.amount >= gross_amount, ErrorCode::InsufficientAssetInventory);
 
         pack.status = PackStatus::Opened;
         pack.randomness = randomness;
@@ -256,6 +304,11 @@ pub mod sharedstocks {
 
         let asset_index = find_asset(&config.asset_mints, allocation.asset_mint)?;
         require!(config.asset_enabled[asset_index], ErrorCode::AssetDisabled);
+        require_keys_eq!(
+            ctx.accounts.asset_vault_ata.key(),
+            config.asset_vaults[asset_index],
+            ErrorCode::InvalidAssetVault
+        );
         let transfer_fee_config = get_mint_extension_data::<TransferFeeConfig>(
             &ctx.accounts.asset_mint.to_account_info(),
         )
@@ -493,6 +546,7 @@ pub enum ErrorCode {
     #[msg("The allocation has already been claimed.")] AllocationAlreadyClaimed,
     #[msg("There is not enough funding to claim this allocation.")] InsufficientAssetInventory,
     #[msg("The requested quantity is invalid.")] InvalidQuantity,
+    #[msg("The supplied pack PDA accounts are invalid or do not match the requested quantity.")] InvalidPackAccounts,
     #[msg("Arithmetic overflow or underflow.")] ArithmeticOverflow,
     #[msg("Counter overflow reached.")] CounterOverflow,
     #[msg("The signer is not the configured admin.")] UnauthorizedAuthority,
@@ -575,6 +629,83 @@ fn select_asset(config: &Config, randomness: [u8; 32]) -> Option<AssetChoice> {
         .wrapping_add(u64::from(randomness[5]))
         % enabled.len() as u64;
     Some(AssetChoice { mint: enabled[roll as usize] })
+}
+
+fn select_funded_asset(
+    config: &Config,
+    randomness: [u8; 32],
+    tier_index: usize,
+    remaining_accounts: &[AccountInfo],
+) -> Result<AssetChoice> {
+    let asset_count = config.asset_count as usize;
+    require!(
+        remaining_accounts.len() >= asset_count.saturating_mul(2),
+        ErrorCode::InvalidAssetVault
+    );
+
+    let start = if asset_count == 0 {
+        0
+    } else {
+        (u64::from(randomness[3])
+            .wrapping_add(u64::from(randomness[4]))
+            .wrapping_add(u64::from(randomness[5]))
+            % asset_count as u64) as usize
+    };
+
+    for offset in 0..asset_count {
+        let index = (start + offset) % asset_count;
+        if !config.asset_enabled[index] || config.asset_vaults[index] == Pubkey::default() {
+            continue;
+        }
+
+        let mint_info = &remaining_accounts[index * 2];
+        let vault_info = &remaining_accounts[index * 2 + 1];
+        if mint_info.key() != config.asset_mints[index]
+            || vault_info.key() != config.asset_vaults[index]
+        {
+            continue;
+        }
+
+        let vault_data = vault_info
+            .try_borrow_data()
+            .map_err(|_| error!(ErrorCode::InvalidAssetVault))?;
+        let vault = StateWithExtensions::<Token2022Account>::unpack(&vault_data)
+            .map_err(|_| error!(ErrorCode::InvalidAssetVault))?;
+        let (vault_authority, _) = Pubkey::find_program_address(
+            &[b"vault", mint_info.key().as_ref()],
+            &crate::ID,
+        );
+        if vault.base.mint != mint_info.key() || vault.base.owner != vault_authority {
+            continue;
+        }
+
+        let gross_amount = reward_gross_amount(mint_info, config.asset_reward_amounts[index][tier_index])?;
+        if vault.base.amount >= gross_amount {
+            return Ok(AssetChoice { mint: mint_info.key() });
+        }
+    }
+
+    Err(ErrorCode::NoAvailableAssets.into())
+}
+
+fn reward_gross_amount(mint: &AccountInfo<'_>, net_amount: u64) -> Result<u64> {
+    let transfer_fee_config = get_mint_extension_data::<TransferFeeConfig>(mint)
+        .map_err(|_| error!(ErrorCode::InvalidTransferFeeConfig))?;
+    let transfer_fee = transfer_fee_config.get_epoch_fee(Clock::get()?.epoch);
+    let gross_amount = transfer_fee
+        .calculate_pre_fee_amount(net_amount)
+        .ok_or(ErrorCode::ArithmeticOverflow)?;
+    let fee_amount = transfer_fee
+        .calculate_fee(gross_amount)
+        .ok_or(ErrorCode::ArithmeticOverflow)?;
+    require!(
+        gross_amount
+            .checked_sub(fee_amount)
+            .ok_or(ErrorCode::ArithmeticOverflow)?
+            == net_amount,
+        ErrorCode::InvalidTransferFeeConfig
+    );
+    Ok(gross_amount)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

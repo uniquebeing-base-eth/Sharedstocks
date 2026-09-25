@@ -5,6 +5,8 @@
     "install:frontend": "npm install --prefix frontend",
     "build": "npm run build --prefix frontend",
     "dev": "npm run dev --prefix frontend -- --host 0.0.0.0",
-    "verify:reward-matrix": "node scripts/compute-reward-matrix.mjs"
+    "setup:solana": "bash scripts/setup-solana.sh",
+    "verify:reward-matrix": "node scripts/compute-reward-matrix.mjs",
+    "verify:mainnet-config": "node scripts/compute-reward-matrix.mjs"
   }
 }

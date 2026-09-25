@@ -1,7 +1,12 @@
 const RPC_URL = process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com'
 const API_URL = 'https://prestocks.com/api/prestocks'
 const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'
+const MAINNET_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
+const MAINNET_TREASURY = 'Cg5jju2XcxFvX8zU6JsFHFg2vMz23chXX1iz4dbB2v6r'
+const DEPLOYER = 'CSG6s9GRvGASXzjTJCcDsn6A76Z7XYczFrxaCF9unPVf'
+const PROGRAM_ID = 'HCqpbmtJqBaTPoD23QLCQDTF8shAR2Xa82CNoMikZAGj'
 const TARGET_CENTS = [3n, 6n, 10n, 30n, 50n]
+const REWARD_WEIGHTS_BPS = [8000, 1500, 400, 90, 10]
 const ASSETS = {
   ANTHROPIC: 'Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw',
   ANDURIL: 'PresTj4Yc2bAR197Er7wz4UUKSfqt6FryBEdAriBoQB',
@@ -70,5 +75,14 @@ console.log(JSON.stringify({
   rpc: RPC_URL,
   targetsUsd: ['0.03', '0.06', '0.10', '0.30', '0.50'],
   weightsBasisPoints: [8000, 1500, 400, 90, 10],
+  initialization: {
+    network: 'mainnet-beta',
+    programId: PROGRAM_ID,
+    authority: DEPLOYER,
+    treasury: MAINNET_TREASURY,
+    usdcMint: MAINNET_USDC_MINT,
+    packPriceBaseUnits: '100000',
+    rewardWeightsBasisPoints: REWARD_WEIGHTS_BPS,
+  },
   matrix,
 }, null, 2))
