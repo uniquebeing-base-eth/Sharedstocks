@@ -6,11 +6,11 @@
     "image": "https://www.prestocks.com/logos/anduril.png",
     "external_url": "https://www.prestocks.com/anduril",
     "contract_address": "PresTj4Yc2bAR197Er7wz4UUKSfqt6FryBEdAriBoQB",
-    "markPrice": 156.53234398,
-    "markValuation": 138484017154,
-    "tokenPrice": 165.46189965416815,
-    "impliedValuation": 146383986641,
-    "supply": 11805.81796371
+    "markPrice": 156.59251237,
+    "markValuation": 138537248072,
+    "tokenPrice": 163.15424402519992,
+    "impliedValuation": 144342405882,
+    "supply": 11805.817962899
   },
   {
     "name": "Anthropic PreStocks",
@@ -19,10 +19,10 @@
     "image": "https://www.prestocks.com/logos/anthropic.png",
     "external_url": "https://www.prestocks.com/anthropic",
     "contract_address": "Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw",
-    "markPrice": 1056.64742212,
-    "markValuation": 1731151640756,
-    "tokenPrice": 1053.39240077654,
-    "impliedValuation": 1725818797064,
+    "markPrice": 1056.97589909,
+    "markValuation": 1731689798928,
+    "tokenPrice": 1056.302424030403,
+    "impliedValuation": 1730586415311,
     "supply": 7381.777845061
   },
   {
@@ -32,8 +32,8 @@
     "image": "https://www.prestocks.com/logos/figureai.png",
     "external_url": "https://www.prestocks.com/figureai",
     "contract_address": "PreZad18qfPtbxNpMtMuAuX2zVpvkEU8DnJx56faCWd",
-    "markPrice": 180.15120048,
-    "markValuation": 39277822913,
+    "markPrice": 180.16441038,
+    "markValuation": 39280703027,
     "tokenPrice": 175.27835286628095,
     "impliedValuation": 38215410644,
     "supply": 3012.857149029
@@ -45,10 +45,10 @@
     "image": "https://www.prestocks.com/logos/kalshi.png",
     "external_url": "https://www.prestocks.com/kalshi",
     "contract_address": "PreLWGkkeqG1s4HEfFZSy9moCrJ7btsHuUtfcCeoRua",
-    "markPrice": 884.73994337,
-    "markValuation": 32179685780,
-    "tokenPrice": 879.974218777413,
-    "impliedValuation": 32006347251,
+    "markPrice": 884.82778084,
+    "markValuation": 32182880597,
+    "tokenPrice": 882.2102503814244,
+    "impliedValuation": 32087676002,
     "supply": 904.864993871
   },
   {
@@ -58,10 +58,10 @@
     "image": "https://www.prestocks.com/logos/neuralink.png",
     "external_url": "https://www.prestocks.com/neuralink",
     "contract_address": "PrekqLJvJ3qVdXmBGDiexvwUTF4rLFDa6HWS4HJbw9S",
-    "markPrice": 336.97915778,
-    "markValuation": 64192861343,
-    "tokenPrice": 453.0418756390307,
-    "impliedValuation": 86302234528,
+    "markPrice": 337.02458962,
+    "markValuation": 64201515884,
+    "tokenPrice": 446.576282239814,
+    "impliedValuation": 85070570993,
     "supply": 2595.27260368
   },
   {
@@ -71,10 +71,10 @@
     "image": "https://www.prestocks.com/logos/openai.png",
     "external_url": "https://www.prestocks.com/openai",
     "contract_address": "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
-    "markPrice": 1024.541393387827,
-    "markValuation": 1269335373667,
-    "tokenPrice": 1324.3575474997829,
-    "impliedValuation": 1640786690780,
+    "markPrice": 1024.5258018132542,
+    "markValuation": 1269316056793,
+    "tokenPrice": 1309.4788781806744,
+    "impliedValuation": 1622353056569,
     "supply": 2826.3205316578187
   },
   {
@@ -84,11 +84,11 @@
     "image": "https://www.prestocks.com/logos/polymarket.png",
     "external_url": "https://www.prestocks.com/polymarket",
     "contract_address": "Pre8AREmFPtoJFT8mQSXQLh56cwJmM7CFDRuoGBZiUP",
-    "markPrice": 145.5361727,
-    "markValuation": 15152094707,
-    "tokenPrice": 147.56992687250408,
-    "impliedValuation": 15363833378,
-    "supply": 4816.872925489
+    "markPrice": 145.54104109,
+    "markValuation": 15152601566,
+    "tokenPrice": 151.34151933520695,
+    "impliedValuation": 15756502260,
+    "supply": 4816.872918753
   },
   {
     "name": "SpaceX PreStocks",
@@ -97,8 +97,8 @@
     "image": "https://www.prestocks.com/logos/spacex.png",
     "external_url": "https://www.prestocks.com/spacex",
     "contract_address": "PreANxuXjsy2pvisWWMNB6YaJNzr7681wJJr2rHsfTh",
-    "markPrice": 149.30940512627504,
-    "markValuation": 1957612200544,
+    "markPrice": 148.83042991713234,
+    "markValuation": 1951332303358,
     "tokenPrice": 118.4142228401588,
     "impliedValuation": 1552542032793,
     "supply": 43712.52684198

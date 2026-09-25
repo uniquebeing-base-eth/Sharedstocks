@@ -160,25 +160,42 @@ async function confirmTransactionWithRetry(
   commitment: 'processed' | 'confirmed' | 'finalized' = 'confirmed',
   timeoutMs = 90_000,
 ): Promise<void> {
-  const startedAt = Date.now()
-  try {
-    await connection.confirmTransaction(signature, commitment)
-    return
-  } catch {
-    // Some RPC providers are slow or temporarily unavailable, so fall back to a status poll.
-  }
+  const primaryEndpoint = (connection as Connection & { rpcEndpoint?: string }).rpcEndpoint
+  const rpcUrls = getSolanaRpcUrls(primaryEndpoint)
+  let lastError: unknown
 
-  while (Date.now() - startedAt < timeoutMs) {
-    const statuses = await connection.getSignatureStatuses([signature], { searchTransactionHistory: true })
-    const status = statuses.value?.[0]
-    if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') return
-    if (status?.err) {
-      throw new Error(`Transaction failed on Solana: ${JSON.stringify(status.err)}`)
+  for (const rpcUrl of rpcUrls) {
+    const rpcConnection = rpcUrl === primaryEndpoint ? connection : new Connection(rpcUrl, 'confirmed')
+    const startedAt = Date.now()
+
+    try {
+      await rpcConnection.confirmTransaction(signature, commitment)
+      return
+    } catch (error) {
+      lastError = error
+      if (!isRpcAccessError(error)) throw error
     }
-    await new Promise((resolve) => setTimeout(resolve, 1500))
+
+    while (Date.now() - startedAt < timeoutMs) {
+      try {
+        const statuses = await rpcConnection.getSignatureStatuses([signature], { searchTransactionHistory: true })
+        const status = statuses.value?.[0]
+        if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') return
+        if (status?.err) {
+          throw new Error(`Transaction failed on Solana: ${JSON.stringify(status.err)}`)
+        }
+      } catch (error) {
+        lastError = error
+        if (!isRpcAccessError(error)) throw error
+        break
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+    }
   }
 
-  throw new Error(`Transaction was not confirmed in ${timeoutMs / 1000} seconds. It is unknown if it succeeded or failed. Check signature ${signature} using the Solana Explorer or CLI tools.`)
+  throw lastError instanceof Error && lastError.message.includes('Transaction failed on Solana')
+    ? lastError
+    : new Error(`Transaction was not confirmed in ${timeoutMs / 1000} seconds. It is unknown if it succeeded or failed. Check signature ${signature} using the Solana Explorer or CLI tools.`)
 }
 
 export async function loadWalletHoldings(
@@ -216,43 +233,61 @@ async function readActualOutput(
   owner: PublicKey,
   outputMint: string,
 ): Promise<Holding> {
-  const transaction = await connection.getParsedTransaction(signature, {
-    commitment: 'confirmed',
-    maxSupportedTransactionVersion: 0,
-  })
-  if (!transaction?.meta) throw new Error('The confirmed transaction has no readable token metadata.')
+  const primaryEndpoint = (connection as Connection & { rpcEndpoint?: string }).rpcEndpoint
+  const rpcUrls = getSolanaRpcUrls(primaryEndpoint)
+  let lastError: unknown
 
-  const before = new Map<string, { amount: string; decimals: number; owner: string; program: PublicKey }>()
-  for (const balance of transaction.meta.preTokenBalances ?? []) {
-    if (balance.owner) {
-      before.set(`${balance.accountIndex}:${balance.mint}`, {
-        amount: balance.uiTokenAmount.amount,
-        decimals: balance.uiTokenAmount.decimals,
-        owner: balance.owner,
-        program: balance.programId ? new PublicKey(balance.programId) : TOKEN_PROGRAM_ID,
+  for (const rpcUrl of rpcUrls) {
+    const rpcConnection = rpcUrl === primaryEndpoint ? connection : new Connection(rpcUrl, 'confirmed')
+    try {
+      const transaction = await rpcConnection.getParsedTransaction(signature, {
+        commitment: 'confirmed',
+        maxSupportedTransactionVersion: 0,
       })
+      if (!transaction?.meta) {
+        throw new Error('The confirmed transaction has no readable token metadata.')
+      }
+
+      const before = new Map<string, { amount: string; decimals: number; owner: string; program: PublicKey }>()
+      for (const balance of transaction.meta.preTokenBalances ?? []) {
+        if (balance.owner) {
+          before.set(`${balance.accountIndex}:${balance.mint}`, {
+            amount: balance.uiTokenAmount.amount,
+            decimals: balance.uiTokenAmount.decimals,
+            owner: balance.owner,
+            program: balance.programId ? new PublicKey(balance.programId) : TOKEN_PROGRAM_ID,
+          })
+        }
+      }
+
+      let receivedRaw = 0n
+      let decimals = 0
+      let tokenProgram = TOKEN_PROGRAM_ID
+      for (const balance of transaction.meta.postTokenBalances ?? []) {
+        if (balance.mint !== outputMint || balance.owner !== owner.toBase58()) continue
+        const previous = before.get(`${balance.accountIndex}:${balance.mint}`)
+        receivedRaw += BigInt(balance.uiTokenAmount.amount) - BigInt(previous?.amount ?? '0')
+        decimals = balance.uiTokenAmount.decimals
+        tokenProgram = balance.programId ? new PublicKey(balance.programId) : (previous?.program ?? TOKEN_PROGRAM_ID)
+      }
+
+      if (receivedRaw <= 0n) throw new Error('The confirmed swap did not deliver the requested PreStock token.')
+      return {
+        mint: outputMint,
+        amount: parseUiAmount(receivedRaw.toString(), decimals),
+        rawAmount: receivedRaw.toString(),
+        decimals,
+        tokenProgram,
+      }
+    } catch (error) {
+      lastError = error
+      if (!isRpcAccessError(error) && !(error instanceof Error && error.message === 'The confirmed transaction has no readable token metadata.')) {
+        throw error
+      }
     }
   }
 
-  let receivedRaw = 0n
-  let decimals = 0
-  let tokenProgram = TOKEN_PROGRAM_ID
-  for (const balance of transaction.meta.postTokenBalances ?? []) {
-    if (balance.mint !== outputMint || balance.owner !== owner.toBase58()) continue
-    const previous = before.get(`${balance.accountIndex}:${balance.mint}`)
-    receivedRaw += BigInt(balance.uiTokenAmount.amount) - BigInt(previous?.amount ?? '0')
-    decimals = balance.uiTokenAmount.decimals
-    tokenProgram = balance.programId ? new PublicKey(balance.programId) : (previous?.program ?? TOKEN_PROGRAM_ID)
-  }
-
-  if (receivedRaw <= 0n) throw new Error('The confirmed swap did not deliver the requested PreStock token.')
-  return {
-    mint: outputMint,
-    amount: parseUiAmount(receivedRaw.toString(), decimals),
-    rawAmount: receivedRaw.toString(),
-    decimals,
-    tokenProgram,
-  }
+  throw lastError ?? new Error('The confirmed transaction could not be verified on the Solana RPC network.')
 }
 
 export async function executePreStockSwap({
