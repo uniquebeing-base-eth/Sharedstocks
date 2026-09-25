@@ -17,7 +17,7 @@ import {
 
 export const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')
 export const USDC_DECIMALS = 6
-export const JUPITER_API_URL = import.meta.env.VITE_JUPITER_API_URL ?? 'https://quote-api.jup.ag/v6'
+export const JUPITER_API_URL = import.meta.env.VITE_JUPITER_API_URL ?? 'https://api.jup.ag/swap/v1'
 
 export type PurchaseStatus =
   | 'preparing'
@@ -61,6 +61,17 @@ async function readJson<T>(response: Response): Promise<T> {
     throw new Error(detail || `Request failed with ${response.status}`)
   }
   return response.json() as Promise<T>
+}
+
+async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
+  try {
+    return await readJson<T>(await fetch(input, init))
+  } catch (error) {
+    if (error instanceof TypeError && error.message === 'Failed to fetch') {
+      throw new Error('Jupiter is unreachable right now. Check your network connection and try again.')
+    }
+    throw error
+  }
 }
 
 function toBaseUnits(amountUsd: number): string {
@@ -170,10 +181,10 @@ export async function executePreStockSwap({
   quoteUrl.searchParams.set('amount', inputAmount)
   quoteUrl.searchParams.set('slippageBps', String(slippageBps))
   quoteUrl.searchParams.set('restrictIntermediateTokens', 'true')
-  const quote = await readJson<JupiterQuote>(await fetch(quoteUrl))
+  const quote = await fetchJson<JupiterQuote>(quoteUrl)
   if (!quote.routePlan?.length) throw new Error('Jupiter found no route for this PreStock.')
 
-  const swap = await readJson<JupiterSwapResponse>(await fetch(`${JUPITER_API_URL}/swap`, {
+  const swap = await fetchJson<JupiterSwapResponse>(`${JUPITER_API_URL}/swap`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -183,7 +194,7 @@ export async function executePreStockSwap({
       dynamicComputeUnitLimit: true,
       prioritizationFeeLamports: 'auto',
     }),
-  }))
+  })
 
   const transactionBytes = Uint8Array.from(atob(swap.swapTransaction), (character) => character.charCodeAt(0))
   const transaction = VersionedTransaction.deserialize(transactionBytes)
