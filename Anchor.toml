@@ -15,7 +15,7 @@ sharedstocks = "HCqpbmtJqBaTPoD23QLCQDTF8shAR2Xa82CNoMikZAGj"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "Localnet"
+cluster = "Mainnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
