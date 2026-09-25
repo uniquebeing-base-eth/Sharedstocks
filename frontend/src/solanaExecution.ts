@@ -1,9 +1,8 @@
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
-  createAssociatedTokenAccountInstruction,
+  createAssociatedTokenAccountIdempotentInstruction,
   createTransferCheckedInstruction,
   getAssociatedTokenAddress,
-  getMint,
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
 } from '@solana/spl-token'
@@ -365,43 +364,42 @@ export async function giftPreStock({
   const mint = new PublicKey(holding.mint)
   const source = await getAssociatedTokenAddress(mint, wallet.publicKey, false, holding.tokenProgram, ASSOCIATED_TOKEN_PROGRAM_ID)
   const destination = await getAssociatedTokenAddress(mint, recipient, false, holding.tokenProgram, ASSOCIATED_TOKEN_PROGRAM_ID)
-  const recipientBefore = await loadWalletHoldings(connection, recipient, new Set([mint.toBase58()]))
-  const beforeRaw = BigInt(recipientBefore.find((item) => item.mint === mint.toBase58())?.rawAmount ?? '0')
-  const destinationInfo = await connection.getAccountInfo(destination)
+  const latestBlockhash = await withRpcFallback(connection, (rpcConnection) => rpcConnection.getLatestBlockhash('confirmed'))
   const transaction = new Transaction()
-  if (!destinationInfo) {
-    transaction.add(createAssociatedTokenAccountInstruction(
-      wallet.publicKey,
-      destination,
-      recipient,
-      mint,
-      holding.tokenProgram,
-      ASSOCIATED_TOKEN_PROGRAM_ID,
-    ))
-  }
+  transaction.feePayer = wallet.publicKey
+  transaction.recentBlockhash = latestBlockhash.blockhash
+  transaction.add(createAssociatedTokenAccountIdempotentInstruction(
+    wallet.publicKey,
+    destination,
+    recipient,
+    mint,
+    holding.tokenProgram,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+  ))
 
-  const mintInfo = await getMint(connection, mint, 'confirmed', holding.tokenProgram)
-  const rawAmount = BigInt(Math.round(amount * 10 ** mintInfo.decimals))
+  const rawAmount = BigInt(Math.round(amount * 10 ** holding.decimals))
   transaction.add(createTransferCheckedInstruction(
     source,
     mint,
     destination,
     wallet.publicKey,
     Number(rawAmount),
-    mintInfo.decimals,
+    holding.decimals,
     [],
     holding.tokenProgram,
   ))
 
   const signature = await wallet.sendTransaction(transaction, connection)
   await confirmTransactionWithRetry(connection, signature, 'confirmed', 90_000)
-  const recipientHoldings = await loadWalletHoldings(connection, recipient, new Set([mint.toBase58()]))
-  const received = recipientHoldings.find((item) => item.mint === mint.toBase58())
-  const receivedRaw = BigInt(received?.rawAmount ?? '0')
-  if (!received || receivedRaw - beforeRaw < rawAmount) {
-    throw new Error('The transfer confirmed, but the recipient balance could not be verified.')
+  return {
+    signature,
+    recipient: recipient.toBase58(),
+    holding: {
+      ...holding,
+      amount,
+      rawAmount: rawAmount.toString(),
+    },
   }
-  return { signature, recipient: recipient.toBase58(), holding: received }
 }
 
 export function transactionErrorMessage(error: unknown): string {

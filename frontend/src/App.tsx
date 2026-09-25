@@ -64,6 +64,30 @@ function holdingValue(holding: Holding, stocks: PreStock[]): number {
   return holding.amount * (stock?.tokenPrice ?? 0)
 }
 
+type WalletActivity = { bought: number; gifted: number }
+
+function readWalletActivity(walletAddress: string): WalletActivity {
+  try {
+    const stored = localStorage.getItem(`sharedstocks-activity:${walletAddress}`)
+    if (!stored) return { bought: 0, gifted: 0 }
+    const activity = JSON.parse(stored) as Partial<WalletActivity>
+    return {
+      bought: Number.isFinite(activity.bought) ? Number(activity.bought) : 0,
+      gifted: Number.isFinite(activity.gifted) ? Number(activity.gifted) : 0,
+    }
+  } catch {
+    return { bought: 0, gifted: 0 }
+  }
+}
+
+function writeWalletActivity(walletAddress: string, activity: WalletActivity): void {
+  try {
+    localStorage.setItem(`sharedstocks-activity:${walletAddress}`, JSON.stringify(activity))
+  } catch {
+    // Keep the current session usable when browser storage is unavailable.
+  }
+}
+
 function ExploreView({ onBack }: { onBack: () => void }) {
   const [stocks, setStocks] = useState<PreStock[]>([])
   const [selectedStock, setSelectedStock] = useState<PreStock | null>(null)
@@ -179,6 +203,11 @@ function SharedStocksApp() {
   const [purchaseSignature, setPurchaseSignature] = useState<string | null>(null)
   const [purchasedHolding, setPurchasedHolding] = useState<Holding | null>(null)
   const [giftMode, setGiftMode] = useState<'choice' | 'form' | 'complete' | null>(null)
+  const [walletActivityState, setWalletActivityState] = useState<{ walletAddress: string; activity: WalletActivity }>({
+    walletAddress: '',
+    activity: { bought: 0, gifted: 0 },
+  })
+  const [isGifting, setIsGifting] = useState(false)
   const [giftTarget, setGiftTarget] = useState<Holding | null>(null)
   const [giftAmount, setGiftAmount] = useState('')
   const [giftRecipient, setGiftRecipient] = useState('')
@@ -188,6 +217,12 @@ function SharedStocksApp() {
   const { publicKey, sendTransaction } = useWallet()
 
   const total = (quantity * 0.1).toFixed(2)
+  const walletAddress = publicKey?.toBase58() ?? ''
+  const walletActivity = walletAddress
+    ? walletActivityState.walletAddress === walletAddress
+      ? walletActivityState.activity
+      : readWalletActivity(walletAddress)
+    : { bought: 0, gifted: 0 }
 
   useEffect(() => {
     fetchPreStocks().then((availableStocks) => {
@@ -202,7 +237,7 @@ function SharedStocksApp() {
       return Promise.resolve()
     }
     const supportedMints = new Set(stocks.flatMap((stock) => stock.contractAddress ? [stock.contractAddress] : []))
-    return loadWalletHoldings(connection, publicKey, supportedMints).then(setHoldings).catch(() => setHoldings([]))
+    return loadWalletHoldings(connection, publicKey, supportedMints).then(setHoldings).catch(() => undefined)
   }, [connection, publicKey, stocks])
 
   useEffect(() => {
@@ -215,6 +250,7 @@ function SharedStocksApp() {
     if (!publicKey || !selectedStock?.contractAddress) return
     setPurchaseError(null)
     setPurchaseSignature(null)
+    setPurchaseStatus(null)
     setGiftMode(null)
     setPurchasedHolding(null)
     try {
@@ -227,6 +263,24 @@ function SharedStocksApp() {
         onStatus: setPurchaseStatus,
       })
       setPurchaseSignature(result.signature)
+      const purchaser = publicKey.toBase58()
+      setWalletActivityState((currentState) => {
+        const currentActivity = currentState.walletAddress === purchaser ? currentState.activity : readWalletActivity(purchaser)
+        const nextActivity = { ...currentActivity, bought: currentActivity.bought + result.holding.amount }
+        writeWalletActivity(purchaser, nextActivity)
+        return { walletAddress: purchaser, activity: nextActivity }
+      })
+      setHoldings((currentHoldings) => {
+        const existing = currentHoldings.find((holding) => holding.mint === result.holding.mint)
+        if (!existing) return [...currentHoldings, result.holding]
+        return currentHoldings.map((holding) => holding.mint === result.holding.mint
+          ? {
+              ...holding,
+              amount: holding.amount + result.holding.amount,
+              rawAmount: (BigInt(holding.rawAmount) + BigInt(result.holding.rawAmount)).toString(),
+            }
+          : holding)
+      })
       await refreshHoldings()
       setPurchasedHolding(result.holding)
       setGiftMode('choice')
@@ -237,9 +291,10 @@ function SharedStocksApp() {
   }
 
   const handleGift = async () => {
-    if (!publicKey || !giftTarget) return
+    if (!publicKey || !giftTarget || isGifting) return
     setGiftError(null)
     setGiftSignature(null)
+    setIsGifting(true)
     try {
       const result = await giftPreStock({
         connection,
@@ -249,25 +304,44 @@ function SharedStocksApp() {
         amount: Number(giftAmount),
       })
       setGiftSignature(result.signature)
+      const sender = publicKey.toBase58()
+      setWalletActivityState((currentState) => {
+        const currentActivity = currentState.walletAddress === sender ? currentState.activity : readWalletActivity(sender)
+        const nextActivity = { ...currentActivity, gifted: currentActivity.gifted + Number(giftAmount) }
+        writeWalletActivity(sender, nextActivity)
+        return { walletAddress: sender, activity: nextActivity }
+      })
       setGiftRecipient('')
       setGiftAmount('')
+      setHoldings((currentHoldings) => currentHoldings
+        .map((holding) => holding.mint === giftTarget.mint
+          ? {
+              ...holding,
+              amount: holding.amount - Number(giftAmount),
+              rawAmount: (BigInt(holding.rawAmount) - BigInt(result.holding.rawAmount)).toString(),
+            }
+          : holding)
+        .filter((holding) => holding.rawAmount !== '0'))
       await refreshHoldings()
       if (purchasedHolding?.mint === giftTarget.mint) setGiftMode('complete')
     } catch (error) {
       setGiftError(transactionErrorMessage(error))
+    } finally {
+      setIsGifting(false)
     }
   }
 
   const totalHoldingValue = holdings.reduce((totalValue, holding) => totalValue + holdingValue(holding, stocks), 0)
+  const collectedShares = holdings.reduce((count, holding) => count + holding.amount, 0)
   const onchainMetrics = [
-    { label: 'PreStocks owned', value: holdings.reduce((count, holding) => count + holding.amount, 0).toLocaleString(undefined, { maximumFractionDigits: 4 }), hint: 'Shares in your collection' },
-    { label: 'Companies collected', value: holdings.length.toString(), hint: 'Different PreStocks held' },
-    { label: 'Ready to gift', value: holdings.reduce((count, holding) => count + holding.amount, 0).toLocaleString(undefined, { maximumFractionDigits: 4 }), hint: 'Shares you can share' },
-    { label: 'Collection value', value: `$${totalHoldingValue.toFixed(2)}`, hint: 'Estimated value in USDC' },
+    { label: 'PreStocks bought', value: walletActivity.bought.toLocaleString(undefined, { maximumFractionDigits: 4 }), hint: 'Shares bought in this app' },
+    { label: 'PreStocks gifted', value: walletActivity.gifted.toLocaleString(undefined, { maximumFractionDigits: 4 }), hint: 'Shares gifted in this app' },
+    { label: 'PreStocks collected', value: collectedShares.toLocaleString(undefined, { maximumFractionDigits: 4 }), hint: 'Shares currently in your wallet' },
+    { label: 'Total value', value: `$${totalHoldingValue.toFixed(2)}`, hint: 'Estimated collection value in USDC' },
   ]
 
   const packCards = [
-    { id: 'In your collection', count: holdings.reduce((count, holding) => count + holding.amount, 0), tone: 'purple' },
+    { id: 'In your collection', count: collectedShares, tone: 'purple' },
     { id: 'Companies', count: holdings.length, tone: 'blue' },
     { id: 'Collection value', count: totalHoldingValue, tone: 'orange' },
   ]
@@ -526,9 +600,15 @@ function SharedStocksApp() {
                     </div>
                   </div>
                   <div className="portfolio-note">
-                    Holdings below are read from your connected wallet after confirmed Solana transactions.
+                    Your collection is read from your connected wallet. Share a PreStock whenever you like.
                   </div>
-                  {holdings.length === 0 && <div className="portfolio-placeholder"><div className="portfolio-badge">No supported PreStock holdings</div></div>}
+                  {!publicKey && (
+                    <div className="portfolio-placeholder">
+                      <div className="portfolio-badge">Connect your wallet to see your collection</div>
+                      <WalletMultiButton className="sheet-wallet-button" />
+                    </div>
+                  )}
+                  {publicKey && holdings.length === 0 && <div className="portfolio-placeholder"><div className="portfolio-badge">Your collection is waiting for its first PreStock</div></div>}
                   <div className="holding-list">
                     {holdings.map((holding) => {
                       const stock = stocks.find((item) => item.contractAddress === holding.mint)
@@ -536,23 +616,30 @@ function SharedStocksApp() {
                         <div className="holding-row" key={holding.mint}>
                           <div><strong>{stock?.symbol ?? shortAddress(holding.mint)}</strong><span>{stock?.name.replace(/ PreStocks$/, '') ?? holding.mint}</span></div>
                           <div className="holding-value"><strong>{holding.amount.toLocaleString(undefined, { maximumFractionDigits: 9 })}</strong><span>${holdingValue(holding, stocks).toFixed(2)} USDC</span></div>
-                          <button type="button" className="mini-button" onClick={() => { setGiftTarget(holding); setGiftError(null); setGiftSignature(null) }}>Gift</button>
+                          <button type="button" className="mini-button" onClick={() => { setGiftTarget(holding); setGiftAmount(holding.amount.toString()); setGiftRecipient(''); setGiftError(null); setGiftSignature(null) }}>Gift</button>
                         </div>
                       )
                     })}
                   </div>
                   {giftTarget && (
                     <div className="gift-form">
-                      <div className="sheet-header">Gift {stocks.find((stock) => stock.contractAddress === giftTarget.mint)?.symbol ?? 'PreStock'}</div>
-                      <input value={giftRecipient} onChange={(event) => setGiftRecipient(event.target.value)} placeholder="Recipient Solana address" aria-label="Recipient Solana address" />
-                      <input value={giftAmount} onChange={(event) => setGiftAmount(event.target.value)} placeholder={`Amount up to ${giftTarget.amount}`} inputMode="decimal" aria-label="Amount to gift" />
+                      <div className="gift-form-heading">
+                        <div className="sheet-header">Gift {stocks.find((stock) => stock.contractAddress === giftTarget.mint)?.symbol ?? 'PreStock'}</div>
+                        <button type="button" className="gift-cancel" onClick={() => setGiftTarget(null)} aria-label="Cancel gift">×</button>
+                      </div>
+                      <label className="gift-field-label">Friend&apos;s Solana wallet address
+                        <input value={giftRecipient} onChange={(event) => setGiftRecipient(event.target.value)} placeholder="Paste wallet address" aria-label="Recipient Solana address" />
+                      </label>
+                      <label className="gift-field-label">Amount to gift
+                        <input value={giftAmount} onChange={(event) => setGiftAmount(event.target.value)} placeholder={`Amount up to ${giftTarget.amount}`} inputMode="decimal" aria-label="Amount to gift" />
+                      </label>
                       <p className="gift-preview">Your friend will receive <strong>{giftAmount || '0'} {stocks.find((stock) => stock.contractAddress === giftTarget.mint)?.symbol ?? 'PreStock'}</strong>.</p>
                       {giftError && <div className="explore-state error-state">{giftError}</div>}
-                      <button type="button" className="sheet-primary" onClick={handleGift} disabled={!giftRecipient || !giftAmount}>Confirm gift</button>
+                      {giftSignature && <div className="portfolio-badge gift-success">Gift confirmed. Your collection has been updated.</div>}
+                      <button type="button" className="sheet-primary" onClick={handleGift} disabled={!giftRecipient || !giftAmount || isGifting}>{isGifting ? 'Waiting for wallet approval…' : giftSignature ? 'Gift sent' : 'Review and send gift'}</button>
                       {giftSignature && (
                         <>
                           <a className="transaction-link" href={`https://solscan.io/tx/${giftSignature}`} target="_blank" rel="noreferrer">View confirmed transfer ↗</a>
-                          <button type="button" className="secondary-button" onClick={() => window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(`I just gifted ${giftAmount} of ${stocks.find((stock) => stock.contractAddress === giftTarget.mint)?.symbol ?? 'a PreStock'} to a friend — investing in their future.`)}`, '_blank', 'noopener,noreferrer')}>Share gift on X</button>
                         </>
                       )}
                     </div>
