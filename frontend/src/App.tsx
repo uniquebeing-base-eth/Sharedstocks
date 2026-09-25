@@ -564,7 +564,7 @@ function App() {
     const envRpc = import.meta.env.VITE_SOLANA_RPC_URL
     const fallbackRpc = network === 'devnet'
       ? 'https://api.devnet.solana.com'
-      : 'https://rpc.ankr.com/solana'
+      : 'https://solana-rpc.publicnode.com'
     return envRpc ?? fallbackRpc
   }, [])
   const wallets = useMemo(

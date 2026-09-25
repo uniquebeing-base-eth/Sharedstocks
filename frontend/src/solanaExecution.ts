@@ -28,6 +28,7 @@ export const JUPITER_API_URL = JUPITER_API_URLS[0] ?? 'https://api.jup.ag/swap/v
 const DEFAULT_SOLANA_RPC_URLS = [
   import.meta.env.VITE_SOLANA_RPC_URL,
   import.meta.env.VITE_SOLANA_NETWORK === 'devnet' ? 'https://api.devnet.solana.com' : 'https://api.mainnet-beta.solana.com',
+  'https://solana-rpc.publicnode.com',
   'https://solana-api.projectserum.com',
   'https://rpc.ankr.com/solana',
   'https://public-rpc.blockpi.io',
