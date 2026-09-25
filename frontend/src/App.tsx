@@ -10,7 +10,7 @@ import {
   WalletMultiButton,
 } from '@solana/wallet-adapter-react-ui'
 import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets'
-import { type Cluster } from '@solana/web3.js'
+import { PublicKey, type Cluster } from '@solana/web3.js'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import '@solana/wallet-adapter-react-ui/styles.css'
 import './App.css'
@@ -91,6 +91,37 @@ function readWalletActivity(walletAddress: string): WalletActivity {
 function writeWalletActivity(walletAddress: string, activity: WalletActivity): void {
   try {
     localStorage.setItem(`sharedstocks-activity:${walletAddress}`, JSON.stringify(activity))
+  } catch {
+    // Keep the current session usable when browser storage is unavailable.
+  }
+}
+
+function readWalletHoldings(walletAddress: string): Holding[] {
+  try {
+    const stored = localStorage.getItem(`sharedstocks-holdings:${walletAddress}`)
+    if (!stored) return []
+    const parsed: unknown = JSON.parse(stored)
+    if (!Array.isArray(parsed)) return []
+    return parsed.map((item) => ({
+      mint: String(item.mint),
+      amount: Number(item.amount),
+      rawAmount: String(item.rawAmount),
+      decimals: Number(item.decimals),
+      tokenProgram: new PublicKey(String(item.tokenProgram)),
+      tokenAccount: item.tokenAccount ? new PublicKey(String(item.tokenAccount)) : undefined,
+    })).filter((holding) => holding.mint && holding.rawAmount !== '0' && Number.isFinite(holding.amount))
+  } catch {
+    return []
+  }
+}
+
+function writeWalletHoldings(walletAddress: string, holdings: Holding[]): void {
+  try {
+    localStorage.setItem(`sharedstocks-holdings:${walletAddress}`, JSON.stringify(holdings.map((holding) => ({
+      ...holding,
+      tokenProgram: holding.tokenProgram.toBase58(),
+      tokenAccount: holding.tokenAccount?.toBase58(),
+    }))))
   } catch {
     // Keep the current session usable when browser storage is unavailable.
   }
@@ -204,7 +235,10 @@ function SharedStocksApp() {
   const [quantity, setQuantity] = useState(20)
   const [packFilter, setPackFilter] = useState<PackFilter>('all')
   const [stocks, setStocks] = useState<PreStock[]>([])
-  const [holdings, setHoldings] = useState<Holding[]>([])
+  const [holdingsState, setHoldingsState] = useState<{ walletAddress: string; holdings: Holding[] }>({
+    walletAddress: '',
+    holdings: [],
+  })
   const [selectedSymbol, setSelectedSymbol] = useState('')
   const [purchaseStatus, setPurchaseStatus] = useState<PurchaseStatus | null>(null)
   const [purchaseError, setPurchaseError] = useState<string | null>(null)
@@ -226,6 +260,11 @@ function SharedStocksApp() {
 
   const total = (quantity * 0.1).toFixed(2)
   const walletAddress = publicKey?.toBase58() ?? ''
+  const holdings = walletAddress
+    ? holdingsState.walletAddress === walletAddress
+      ? holdingsState.holdings
+      : readWalletHoldings(walletAddress)
+    : []
   const walletActivity = walletAddress
     ? walletActivityState.walletAddress === walletAddress
       ? walletActivityState.activity
@@ -241,11 +280,21 @@ function SharedStocksApp() {
 
   const refreshHoldings = useCallback(() => {
     if (!publicKey) {
-      setHoldings([])
+      setHoldingsState({ walletAddress: '', holdings: [] })
       return Promise.resolve()
     }
+    const ownerAddress = publicKey.toBase58()
+    setHoldingsState((currentState) => currentState.walletAddress === ownerAddress
+      ? currentState
+      : { walletAddress: ownerAddress, holdings: readWalletHoldings(ownerAddress) })
+    if (stocks.length === 0) return Promise.resolve()
     const supportedMints = new Set(stocks.flatMap((stock) => stock.contractAddress ? [stock.contractAddress] : []))
-    return loadWalletHoldings(connection, publicKey, supportedMints).then(setHoldings).catch(() => undefined)
+    return loadWalletHoldings(connection, publicKey, supportedMints)
+      .then((nextHoldings) => {
+        setHoldingsState({ walletAddress: ownerAddress, holdings: nextHoldings })
+        writeWalletHoldings(ownerAddress, nextHoldings)
+      })
+      .catch(() => undefined)
   }, [connection, publicKey, stocks])
 
   useEffect(() => {
@@ -282,16 +331,22 @@ function SharedStocksApp() {
         writeWalletActivity(purchaser, nextActivity)
         return { walletAddress: purchaser, activity: nextActivity }
       })
-      setHoldings((currentHoldings) => {
+      setHoldingsState((currentState) => {
+        const currentHoldings = currentState.walletAddress === purchaser
+          ? currentState.holdings
+          : readWalletHoldings(purchaser)
         const existing = currentHoldings.find((holding) => holding.mint === result.holding.mint)
-        if (!existing) return [...currentHoldings, result.holding]
-        return currentHoldings.map((holding) => holding.mint === result.holding.mint
+        const nextHoldings = !existing
+          ? [...currentHoldings, result.holding]
+          : currentHoldings.map((holding) => holding.mint === result.holding.mint
           ? {
               ...holding,
               amount: holding.amount + result.holding.amount,
               rawAmount: (BigInt(holding.rawAmount) + BigInt(result.holding.rawAmount)).toString(),
             }
           : holding)
+        writeWalletHoldings(purchaser, nextHoldings)
+        return { walletAddress: purchaser, holdings: nextHoldings }
       })
       await refreshHoldings()
       setPurchasedHolding(result.holding)
@@ -325,15 +380,22 @@ function SharedStocksApp() {
       })
       setGiftRecipient('')
       setGiftAmount('')
-      setHoldings((currentHoldings) => currentHoldings
-        .map((holding) => holding.mint === giftTarget.mint
+      setHoldingsState((currentState) => {
+        const currentHoldings = currentState.walletAddress === sender
+          ? currentState.holdings
+          : readWalletHoldings(sender)
+        const nextHoldings = currentHoldings
+          .map((holding) => holding.mint === giftTarget.mint
           ? {
               ...holding,
               amount: holding.amount - result.holding.amount,
               rawAmount: (BigInt(holding.rawAmount) - BigInt(result.holding.rawAmount)).toString(),
             }
           : holding)
-        .filter((holding) => holding.rawAmount !== '0'))
+          .filter((holding) => holding.rawAmount !== '0')
+        writeWalletHoldings(sender, nextHoldings)
+        return { walletAddress: sender, holdings: nextHoldings }
+      })
       await refreshHoldings()
       if (purchasedHolding?.mint === giftTarget.mint) setGiftMode('complete')
     } catch (error) {
@@ -753,7 +815,7 @@ function App() {
 
   return (
     <ConnectionProvider endpoint={endpoint}>
-      <WalletProvider wallets={wallets} autoConnect={false} onError={(error) => console.error('Wallet connection error:', error)}>
+      <WalletProvider wallets={wallets} autoConnect onError={(error) => console.error('Wallet connection error:', error)}>
         <WalletModalProvider>
           <SharedStocksApp />
         </WalletModalProvider>
