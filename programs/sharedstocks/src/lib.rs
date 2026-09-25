@@ -5,7 +5,6 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
 use anchor_spl::token_2022_extensions::{self, TransferCheckedWithFee};
 use anchor_spl::token_interface::{self, get_mint_extension_data, Mint as InterfaceMint, TokenAccount as InterfaceTokenAccount, TokenInterface};
 use spl_token_2022::extension::transfer_fee::TransferFeeConfig;
-use switchboard_on_demand::{get_sb_program_id, RandomnessAccountData};
 
 declare_id!("HCqpbmtJqBaTPoD23QLCQDTF8shAR2Xa82CNoMikZAGj");
 
@@ -13,6 +12,8 @@ const MAX_TIERS: usize = 5;
 const MAX_ASSETS: usize = 32;
 const BASIS_POINTS: u64 = 10_000;
 const USDC_DECIMALS: u8 = 6;
+const SWITCHBOARD_ON_DEMAND_MAINNET: Pubkey = pubkey!("SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv");
+const SWITCHBOARD_RANDOMNESS_DISCRIMINATOR: [u8; 8] = [10, 66, 229, 135, 220, 239, 217, 114];
 
 #[program]
 pub mod sharedstocks {
@@ -116,11 +117,10 @@ pub mod sharedstocks {
         require!(quantity > 0, ErrorCode::InvalidQuantity);
         require_keys_eq!(
             *ctx.accounts.randomness_account.owner,
-            Pubkey::new_from_array(get_sb_program_id("mainnet").to_bytes()),
+            SWITCHBOARD_ON_DEMAND_MAINNET,
             ErrorCode::InvalidRandomnessAccount
         );
-        let randomness_data = RandomnessAccountData::parse(ctx.accounts.randomness_account.data.borrow())
-            .map_err(|_| error!(ErrorCode::InvalidRandomnessAccount))?;
+        let randomness_data = parse_switchboard_randomness(&ctx.accounts.randomness_account.data.borrow())?;
         require!(randomness_data.reveal_slot == 0, ErrorCode::RandomnessAlreadyRevealed);
 
         let total_cost = quantity
@@ -199,14 +199,12 @@ pub mod sharedstocks {
         );
         require_keys_eq!(
             *ctx.accounts.randomness_account.owner,
-            Pubkey::new_from_array(get_sb_program_id("mainnet").to_bytes()),
+            SWITCHBOARD_ON_DEMAND_MAINNET,
             ErrorCode::InvalidRandomnessAccount
         );
-        let randomness_data = RandomnessAccountData::parse(ctx.accounts.randomness_account.data.borrow())
-            .map_err(|_| error!(ErrorCode::InvalidRandomnessAccount))?;
-        let randomness = randomness_data
-            .get_value(Clock::get()?.slot)
-            .map_err(|_| error!(ErrorCode::RandomnessUnavailable))?;
+        let randomness_data = parse_switchboard_randomness(&ctx.accounts.randomness_account.data.borrow())?;
+        require!(randomness_data.reveal_slot == Clock::get()?.slot, ErrorCode::RandomnessUnavailable);
+        let randomness = randomness_data.value;
 
         let selected = select_asset(config, randomness).ok_or(ErrorCode::NoAvailableAssets)?;
         let tier_index = select_reward_tier(config.reward_tiers, randomness)
@@ -499,6 +497,32 @@ fn find_asset(asset_mints: [Pubkey; MAX_ASSETS], mint: Pubkey) -> Result<usize> 
         .iter()
         .position(|candidate| *candidate == mint)
         .ok_or(ErrorCode::AssetNotFound.into())
+}
+
+struct SwitchboardRandomness {
+    reveal_slot: u64,
+    value: [u8; 32],
+}
+
+fn parse_switchboard_randomness(data: &[u8]) -> Result<SwitchboardRandomness> {
+    const REVEAL_SLOT_OFFSET: usize = 144;
+    const VALUE_OFFSET: usize = 152;
+    const ACCOUNT_SIZE: usize = 408;
+
+    require!(data.len() >= ACCOUNT_SIZE, ErrorCode::InvalidRandomnessAccount);
+    require!(
+        data[..SWITCHBOARD_RANDOMNESS_DISCRIMINATOR.len()] == SWITCHBOARD_RANDOMNESS_DISCRIMINATOR,
+        ErrorCode::InvalidRandomnessAccount
+    );
+
+    let reveal_slot = u64::from_le_bytes(
+        data[REVEAL_SLOT_OFFSET..REVEAL_SLOT_OFFSET + 8]
+            .try_into()
+            .map_err(|_| error!(ErrorCode::InvalidRandomnessAccount))?,
+    );
+    let mut value = [0u8; 32];
+    value.copy_from_slice(&data[VALUE_OFFSET..VALUE_OFFSET + 32]);
+    Ok(SwitchboardRandomness { reveal_slot, value })
 }
 
 fn select_reward_tier(tiers: [RewardTier; MAX_TIERS], randomness: [u8; 32]) -> Option<usize> {

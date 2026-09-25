@@ -1,3 +1,6 @@
 [workspace]
 members = ["programs/sharedstocks"]
 resolver = "2"
+
+[profile.release]
+overflow-checks = true
