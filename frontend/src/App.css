@@ -624,17 +624,21 @@
   backdrop-filter: blur(2px);
   display: grid;
   place-items: center;
+  padding: 20px;
   z-index: 10;
 }
 
 .action-sheet {
   position: relative;
   width: min(90vw, 380px);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
   background: rgba(255, 255, 255, 0.9);
   border: 1px solid rgba(122, 106, 238, 0.12);
   border-radius: 30px;
   box-shadow: 0 30px 80px rgba(55, 48, 93, 0.18);
   padding: 26px 22px 22px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .sheet-close {

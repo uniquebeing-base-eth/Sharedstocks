@@ -25,6 +25,56 @@ const DEFAULT_JUPITER_API_URLS = [
 export const JUPITER_API_URLS = Array.from(new Set(DEFAULT_JUPITER_API_URLS))
 export const JUPITER_API_URL = JUPITER_API_URLS[0] ?? 'https://api.jup.ag/swap/v1'
 
+const DEFAULT_SOLANA_RPC_URLS = [
+  import.meta.env.VITE_SOLANA_RPC_URL,
+  import.meta.env.VITE_SOLANA_NETWORK === 'devnet' ? 'https://api.devnet.solana.com' : 'https://api.mainnet-beta.solana.com',
+  'https://solana-api.projectserum.com',
+  'https://rpc.ankr.com/solana',
+  'https://public-rpc.blockpi.io',
+].filter((url): url is string => Boolean(url))
+
+export function getSolanaRpcUrls(primaryEndpoint?: string): string[] {
+  return Array.from(new Set([primaryEndpoint, ...DEFAULT_SOLANA_RPC_URLS].filter((url): url is string => Boolean(url))))
+}
+
+function isRpcAccessError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /403|Access forbidden|Failed to fetch|fetch failed|429|rate limit/i.test(message)
+}
+
+async function withRpcFallback<T>(
+  primaryConnection: Connection,
+  operation: (connection: Connection) => Promise<T>,
+  primaryEndpoint?: string,
+): Promise<T> {
+  const rpcUrls = getSolanaRpcUrls(primaryEndpoint ?? (primaryConnection as Connection & { rpcEndpoint?: string }).rpcEndpoint)
+  let lastError: unknown
+
+  for (const rpcUrl of rpcUrls) {
+    const connection = rpcUrl === primaryEndpoint || rpcUrl === (primaryConnection as Connection & { rpcEndpoint?: string }).rpcEndpoint
+      ? primaryConnection
+      : new Connection(rpcUrl, 'confirmed')
+
+    try {
+      return await operation(connection)
+    } catch (error) {
+      lastError = error
+      if (!isRpcAccessError(error)) {
+        throw error
+      }
+    }
+  }
+
+  throw lastError ?? new Error('Solana RPC is unavailable right now.')
+}
+
+export async function getWalletBalanceWithFallback(
+  connection: Connection,
+  owner: PublicKey,
+): Promise<number> {
+  return withRpcFallback(connection, async (rpcConnection) => rpcConnection.getBalance(owner, 'confirmed'))
+}
+
 export type PurchaseStatus =
   | 'preparing'
   | 'getting-quote'
@@ -109,26 +159,28 @@ export async function loadWalletHoldings(
   owner: PublicKey,
   supportedMints: Set<string>,
 ): Promise<Holding[]> {
-  const accounts = await Promise.all([
-    connection.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_PROGRAM_ID }),
-    connection.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_2022_PROGRAM_ID }),
-  ])
+  return withRpcFallback(connection, async (rpcConnection) => {
+    const accounts = await Promise.all([
+      rpcConnection.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_PROGRAM_ID }),
+      rpcConnection.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_2022_PROGRAM_ID }),
+    ])
 
-  return accounts
-    .flatMap((result) => result.value)
-    .map((account) => {
-      const parsed = account.account.data.parsed.info
-      const mint = String(parsed.mint)
-      const rawAmount = String(parsed.tokenAmount.amount)
-      return {
-        mint,
-        amount: Number(parsed.tokenAmount.uiAmount ?? 0),
-        rawAmount,
-        decimals: Number(parsed.tokenAmount.decimals),
-        tokenProgram: account.account.owner,
-      }
-    })
-    .filter((holding) => supportedMints.has(holding.mint) && holding.rawAmount !== '0')
+    return accounts
+      .flatMap((result) => result.value)
+      .map((account) => {
+        const parsed = account.account.data.parsed.info
+        const mint = String(parsed.mint)
+        const rawAmount = String(parsed.tokenAmount.amount)
+        return {
+          mint,
+          amount: Number(parsed.tokenAmount.uiAmount ?? 0),
+          rawAmount,
+          decimals: Number(parsed.tokenAmount.decimals),
+          tokenProgram: account.account.owner,
+        }
+      })
+      .filter((holding) => supportedMints.has(holding.mint) && holding.rawAmount !== '0')
+  }, (connection as Connection & { rpcEndpoint?: string }).rpcEndpoint)
 }
 
 async function readActualOutput(
