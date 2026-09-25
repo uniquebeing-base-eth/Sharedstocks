@@ -141,6 +141,21 @@
   outline-offset: 2px;
 }
 
+.disconnect-button {
+  border: 1px solid rgba(183, 74, 95, 0.28);
+  background: rgba(255, 245, 247, 0.7);
+  color: #9b3853;
+  border-radius: 999px;
+  padding: 9px 12px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.disconnect-button:hover {
+  background: #fff0f3;
+}
+
 .hero-panel {
   margin-top: 8px;
   padding: 18px 4px 0;

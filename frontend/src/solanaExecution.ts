@@ -17,7 +17,13 @@ import {
 
 export const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')
 export const USDC_DECIMALS = 6
-export const JUPITER_API_URL = import.meta.env.VITE_JUPITER_API_URL ?? 'https://api.jup.ag/swap/v1'
+const DEFAULT_JUPITER_API_URLS = [
+  import.meta.env.VITE_JUPITER_API_URL,
+  'https://api.jup.ag/swap/v1',
+  'https://lite-api.jup.ag/swap/v1',
+].filter((url): url is string => Boolean(url))
+export const JUPITER_API_URLS = Array.from(new Set(DEFAULT_JUPITER_API_URLS))
+export const JUPITER_API_URL = JUPITER_API_URLS[0] ?? 'https://api.jup.ag/swap/v1'
 
 export type PurchaseStatus =
   | 'preparing'
@@ -63,15 +69,30 @@ async function readJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>
 }
 
-async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
-  try {
-    return await readJson<T>(await fetch(input, init))
-  } catch (error) {
-    if (error instanceof TypeError && error.message === 'Failed to fetch') {
-      throw new Error('Jupiter is unreachable right now. Check your network connection and try again.')
+async function fetchJupiterJson<T>(path: string, init?: RequestInit, params?: Record<string, string>): Promise<T> {
+  const urls = JUPITER_API_URLS.map((base) => {
+    const url = new URL(path, `${base.replace(/\/$/, '')}/`)
+    for (const [key, value] of Object.entries(params ?? {})) url.searchParams.set(key, value)
+    return url
+  })
+
+  let lastError: unknown
+  for (const url of urls) {
+    try {
+      return await readJson<T>(await fetch(url, init))
+    } catch (error) {
+      lastError = error
+      if (!(error instanceof TypeError) || error.message !== 'Failed to fetch') {
+        throw error
+      }
     }
-    throw error
   }
+
+  if (lastError instanceof TypeError && lastError.message === 'Failed to fetch') {
+    throw new Error('Jupiter is unreachable right now. Check your network connection and try again.')
+  }
+
+  throw lastError ?? new Error('Jupiter request failed.')
 }
 
 function toBaseUnits(amountUsd: number): string {
@@ -175,16 +196,16 @@ export async function executePreStockSwap({
   const inputAmount = toBaseUnits(amountUsd)
 
   onStatus?.('getting-quote')
-  const quoteUrl = new URL(`${JUPITER_API_URL}/quote`)
-  quoteUrl.searchParams.set('inputMint', USDC_MINT.toBase58())
-  quoteUrl.searchParams.set('outputMint', mint.toBase58())
-  quoteUrl.searchParams.set('amount', inputAmount)
-  quoteUrl.searchParams.set('slippageBps', String(slippageBps))
-  quoteUrl.searchParams.set('restrictIntermediateTokens', 'true')
-  const quote = await fetchJson<JupiterQuote>(quoteUrl)
+  const quote = await fetchJupiterJson<JupiterQuote>('quote', undefined, {
+    inputMint: USDC_MINT.toBase58(),
+    outputMint: mint.toBase58(),
+    amount: inputAmount,
+    slippageBps: String(slippageBps),
+    restrictIntermediateTokens: 'true',
+  })
   if (!quote.routePlan?.length) throw new Error('Jupiter found no route for this PreStock.')
 
-  const swap = await fetchJson<JupiterSwapResponse>(`${JUPITER_API_URL}/swap`, {
+  const swap = await fetchJupiterJson<JupiterSwapResponse>('swap', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

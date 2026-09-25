@@ -4,7 +4,11 @@ import {
   useConnection,
   useWallet,
 } from '@solana/wallet-adapter-react'
-import { WalletModalProvider, WalletMultiButton } from '@solana/wallet-adapter-react-ui'
+import {
+  WalletDisconnectButton,
+  WalletModalProvider,
+  WalletMultiButton,
+} from '@solana/wallet-adapter-react-ui'
 import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets'
 import { clusterApiUrl, type Cluster } from '@solana/web3.js'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -204,6 +208,11 @@ function SharedStocksApp() {
     setPurchaseError(null)
     setPurchaseSignature(null)
     try {
+      const balanceLamports = await connection.getBalance(publicKey, 'confirmed')
+      const minimumLamports = 5_000_000
+      if (balanceLamports < minimumLamports) {
+        throw new Error(`Insufficient SOL for fees. This wallet has ${(balanceLamports / 1e9).toFixed(4)} SOL; add at least ${(minimumLamports / 1e9).toFixed(3)} SOL and try again.`)
+      }
       const result = await executePreStockSwap({
         connection,
         wallet: { publicKey, sendTransaction },
@@ -274,6 +283,7 @@ function SharedStocksApp() {
               Explore
             </button>
             <WalletMultiButton className="wallet-button" />
+            {publicKey && <WalletDisconnectButton className="disconnect-button" />}
           </div>
         </header>
 
@@ -564,7 +574,7 @@ function App() {
 
   return (
     <ConnectionProvider endpoint={endpoint}>
-      <WalletProvider wallets={wallets} autoConnect>
+      <WalletProvider wallets={wallets} autoConnect={false} onError={(error) => console.error('Wallet connection error:', error)}>
         <WalletModalProvider>
           <SharedStocksApp />
         </WalletModalProvider>
