@@ -9,7 +9,7 @@ use spl_token_2022::extension::transfer_fee::TransferFeeConfig;
 declare_id!("HCqpbmtJqBaTPoD23QLCQDTF8shAR2Xa82CNoMikZAGj");
 
 const MAX_TIERS: usize = 5;
-const MAX_ASSETS: usize = 32;
+const MAX_ASSETS: usize = 7;
 const BASIS_POINTS: u64 = 10_000;
 const USDC_DECIMALS: u8 = 6;
 const SWITCHBOARD_ON_DEMAND_MAINNET: Pubkey = pubkey!("SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv");

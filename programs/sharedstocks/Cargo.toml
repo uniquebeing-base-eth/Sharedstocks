@@ -19,5 +19,6 @@ default = []
 [dependencies]
 anchor-lang = { version = "0.30.1", features = ["init-if-needed"] }
 anchor-spl = { version = "0.30.1", features = ["token"] }
+proc-macro2 = { version = "1.0", features = ["span-locations"] }
 spl-token = "4.0.3"
 spl-token-2022 = "3.0.5"
