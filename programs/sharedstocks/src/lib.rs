@@ -12,6 +12,8 @@ const MAX_TIERS: usize = 5;
 const MAX_ASSETS: usize = 7;
 const BASIS_POINTS: u64 = 10_000;
 const USDC_DECIMALS: u8 = 6;
+const MAINNET_USDC_MINT: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+const MAINNET_TREASURY: Pubkey = pubkey!("Cg5jju2XcxFvX8zU6JsFHFg2vMz23chXX1iz4dbB2v6r");
 const SWITCHBOARD_ON_DEMAND_MAINNET: Pubkey = pubkey!("SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv");
 const SWITCHBOARD_RANDOMNESS_DISCRIMINATOR: [u8; 8] = [10, 66, 229, 135, 220, 239, 217, 114];
 
@@ -26,6 +28,8 @@ pub mod sharedstocks {
         pack_price: u64,
         tiers: [RewardTier; MAX_TIERS],
     ) -> Result<()> {
+        require_keys_eq!(usdc_mint, MAINNET_USDC_MINT, ErrorCode::InvalidUsdcMint);
+        require_keys_eq!(treasury, MAINNET_TREASURY, ErrorCode::InvalidTreasury);
         require!(
             tiers.iter().map(|tier| tier.weight as u64).sum::<u64>() == BASIS_POINTS,
             ErrorCode::InvalidTierWeights
@@ -40,6 +44,7 @@ pub mod sharedstocks {
         config.next_pack_id = 1;
         config.reward_tiers = tiers;
         config.asset_mints = [Pubkey::default(); MAX_ASSETS];
+        config.asset_vaults = [Pubkey::default(); MAX_ASSETS];
         config.asset_enabled = [false; MAX_ASSETS];
         config.asset_reward_amounts = [[0; MAX_TIERS]; MAX_ASSETS];
         config.asset_count = 0;
@@ -109,6 +114,13 @@ pub mod sharedstocks {
         require!(amounts.iter().all(|amount| *amount > 0), ErrorCode::InvalidRewardAmounts);
         let position = find_asset(&ctx.accounts.config.asset_mints, mint)?;
         ctx.accounts.config.asset_reward_amounts[position] = amounts;
+        Ok(())
+    }
+
+    pub fn set_asset_vault(ctx: Context<AdminOnly>, mint: Pubkey, vault: Pubkey) -> Result<()> {
+        let position = find_asset(&ctx.accounts.config.asset_mints, mint)?;
+        require_keys_neq!(vault, Pubkey::default(), ErrorCode::InvalidAssetVault);
+        ctx.accounts.config.asset_vaults[position] = vault;
         Ok(())
     }
 
@@ -322,9 +334,9 @@ pub struct BuyPacks<'info> {
     pub buyer: Signer<'info>,
     #[account(mut)]
     pub user_usdc_ata: Account<'info, TokenAccount>,
-    #[account(mut)]
+    #[account(mut, constraint = treasury_usdc_ata.owner == config.treasury @ ErrorCode::InvalidTreasury)]
     pub treasury_usdc_ata: Account<'info, TokenAccount>,
-    #[account(mut)]
+    #[account(mut, constraint = usdc_mint.key() == config.usdc_mint @ ErrorCode::InvalidUsdcMint)]
     pub usdc_mint: Account<'info, Mint>,
     pub token_program: Program<'info, Token>,
     /// CHECK: Validated against the deployed Switchboard On-Demand mainnet program in the instruction.
@@ -401,6 +413,7 @@ pub struct Config {
     pub paused: bool,
     pub reward_tiers: [RewardTier; MAX_TIERS],
     pub asset_mints: [Pubkey; MAX_ASSETS],
+    pub asset_vaults: [Pubkey; MAX_ASSETS],
     pub asset_enabled: [bool; MAX_ASSETS],
     pub asset_reward_amounts: [[u64; MAX_TIERS]; MAX_ASSETS],
     pub asset_count: u8,
@@ -408,7 +421,7 @@ pub struct Config {
 }
 
 impl Config {
-    pub const SPACE: usize = 32 + 32 + 32 + 8 + 8 + 1 + (RewardTier::SPACE * MAX_TIERS) + (32 * MAX_ASSETS) + (1 * MAX_ASSETS) + (8 * MAX_TIERS * MAX_ASSETS) + 1 + 1;
+    pub const SPACE: usize = 32 + 32 + 32 + 8 + 8 + 1 + (RewardTier::SPACE * MAX_TIERS) + (32 * MAX_ASSETS) + (32 * MAX_ASSETS) + (1 * MAX_ASSETS) + (8 * MAX_TIERS * MAX_ASSETS) + 1 + 1;
 }
 
 #[account]
@@ -472,6 +485,7 @@ pub enum ErrorCode {
     #[msg("The asset is not currently enabled.")] AssetDisabled,
     #[msg("The program is paused.")] ProgramPaused,
     #[msg("Incorrect USDC mint.")] InvalidUsdcMint,
+    #[msg("The configured treasury is invalid.")] InvalidTreasury,
     #[msg("Not enough USDC balance to complete the purchase.")] InsufficientUsdc,
     #[msg("The configured reward asset inventory is full.")] AssetLimitReached,
     #[msg("Every reward tier must have a positive token amount.")] InvalidRewardAmounts,
@@ -603,6 +617,7 @@ mod tests {
                 RewardTier { weight: 10 },
             ],
             asset_mints: [Pubkey::new_unique(); MAX_ASSETS],
+            asset_vaults: [Pubkey::default(); MAX_ASSETS],
             asset_enabled: [false; MAX_ASSETS],
             asset_reward_amounts: [[0; MAX_TIERS]; MAX_ASSETS],
             asset_count: 2,
