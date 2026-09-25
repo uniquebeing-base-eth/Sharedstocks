@@ -1,6 +1,11 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::program::invoke_signed;
+use anchor_lang::accounts::interface::Interface;
+use anchor_lang::accounts::interface_account::InterfaceAccount;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
+use anchor_spl::token_2022_extensions::{self, TransferCheckedWithFee};
+use anchor_spl::token_interface::{self, get_mint_extension_data, Mint as InterfaceMint, TokenAccount as InterfaceTokenAccount, TokenInterface};
+use spl_token_2022::extension::transfer_fee::TransferFeeConfig;
+use switchboard_on_demand::{get_sb_program_id, RandomnessAccountData};
 
 declare_id!("11111111111111111111111111111111");
 
@@ -17,7 +22,6 @@ pub mod sharedstocks {
         ctx: Context<InitializeConfig>,
         usdc_mint: Pubkey,
         treasury: Pubkey,
-        randomness_oracle: Pubkey,
         pack_price: u64,
         tiers: [RewardTier; MAX_TIERS],
     ) -> Result<()> {
@@ -30,15 +34,13 @@ pub mod sharedstocks {
         config.authority = ctx.accounts.authority.key();
         config.usdc_mint = usdc_mint;
         config.treasury = treasury;
-        config.randomness_oracle = randomness_oracle;
         config.pack_price = pack_price;
         config.paused = false;
         config.next_pack_id = 1;
-        config.current_randomness = [0; 32];
         config.reward_tiers = tiers;
         config.asset_mints = [Pubkey::default(); MAX_ASSETS];
         config.asset_enabled = [false; MAX_ASSETS];
-        config.asset_inventory = [0; MAX_ASSETS];
+        config.asset_reward_amounts = [[0; MAX_TIERS]; MAX_ASSETS];
         config.asset_count = 0;
         config.bump = ctx.bumps.config;
         Ok(())
@@ -68,12 +70,7 @@ pub mod sharedstocks {
         Ok(())
     }
 
-    pub fn add_eligible_asset(
-        ctx: Context<AdminOnly>,
-        mint: Pubkey,
-        inventory: u64,
-    ) -> Result<()> {
-        require!(inventory > 0, ErrorCode::InvalidInventory);
+    pub fn add_eligible_asset(ctx: Context<AdminOnly>, mint: Pubkey) -> Result<()> {
         let config = &mut ctx.accounts.config;
 
         let position = match config.asset_mints.iter().position(|existing| *existing == mint) {
@@ -88,7 +85,6 @@ pub mod sharedstocks {
 
         config.asset_mints[position] = mint;
         config.asset_enabled[position] = true;
-        config.asset_inventory[position] = inventory;
         Ok(())
     }
 
@@ -104,21 +100,14 @@ pub mod sharedstocks {
         Ok(())
     }
 
-    pub fn set_asset_inventory(ctx: Context<AdminOnly>, mint: Pubkey, inventory: u64) -> Result<()> {
-        let position = find_asset(ctx.accounts.config.asset_mints, mint)?;
-        ctx.accounts.config.asset_inventory[position] = inventory;
-        Ok(())
-    }
-
-    pub fn submit_randomness(
-        ctx: Context<SubmitRandomness>,
-        randomness: [u8; 32],
+    pub fn set_asset_reward_amounts(
+        ctx: Context<AdminOnly>,
+        mint: Pubkey,
+        amounts: [u64; MAX_TIERS],
     ) -> Result<()> {
-        require!(
-            ctx.accounts.authority.key() == ctx.accounts.config.randomness_oracle,
-            ErrorCode::UnauthorizedRandomness
-        );
-        ctx.accounts.config.current_randomness = randomness;
+        require!(amounts.iter().all(|amount| *amount > 0), ErrorCode::InvalidRewardAmounts);
+        let position = find_asset(ctx.accounts.config.asset_mints, mint)?;
+        ctx.accounts.config.asset_reward_amounts[position] = amounts;
         Ok(())
     }
 
@@ -165,7 +154,7 @@ pub mod sharedstocks {
         pack.selection_amount = 0;
         pack.randomness = [0; 32];
         pack.claimed = false;
-        pack.bump = 0;
+        pack.bump = ctx.bumps.pack;
 
         ctx.accounts.config.next_pack_id = ctx
             .accounts
@@ -194,30 +183,44 @@ pub mod sharedstocks {
         require!(pack.id == pack_id, ErrorCode::PackIdMismatch);
         require!(pack.owner == ctx.accounts.owner.key(), ErrorCode::NotPackOwner);
         require!(pack.status == PackStatus::Unopened, ErrorCode::PackAlreadyOpened);
-        require!(config.current_randomness != [0; 32], ErrorCode::RandomnessUnavailable);
+        require_keys_eq!(
+            *ctx.accounts.randomness_account.owner,
+            Pubkey::new_from_array(get_sb_program_id("mainnet").to_bytes()),
+            ErrorCode::InvalidRandomnessAccount
+        );
+        let randomness_data = RandomnessAccountData::parse(ctx.accounts.randomness_account.data.borrow())
+            .map_err(|_| error!(ErrorCode::InvalidRandomnessAccount))?;
+        let randomness = randomness_data
+            .get_value(Clock::get()?.slot)
+            .map_err(|_| error!(ErrorCode::RandomnessUnavailable))?;
 
-        let selected = select_asset(config, config.current_randomness).ok_or(ErrorCode::NoAvailableAssets)?;
-        let tier = select_reward_tier(config.reward_tiers, config.current_randomness)
+        let selected = select_asset(config, randomness).ok_or(ErrorCode::NoAvailableAssets)?;
+        let tier_index = select_reward_tier(config.reward_tiers, randomness)
             .ok_or(ErrorCode::NoRewardTierConfigured)?;
+        let asset_index = find_asset(config.asset_mints, selected.mint)?;
+        let allocation_amount = config.asset_reward_amounts[asset_index][tier_index];
+        require!(allocation_amount > 0, ErrorCode::NoRewardAmountConfigured);
+        require!(ctx.accounts.asset_mint.key() == selected.mint, ErrorCode::AssetNotFound);
+        require!(ctx.accounts.asset_vault_ata.amount >= allocation_amount, ErrorCode::InsufficientAssetInventory);
 
         pack.status = PackStatus::Opened;
-        pack.randomness = config.current_randomness;
+        pack.randomness = randomness;
         pack.selection_mint = Some(selected.mint);
-        pack.selection_amount = tier.amount_base;
+        pack.selection_amount = allocation_amount;
 
         let allocation = &mut ctx.accounts.allocation;
         allocation.pack_id = pack.id;
         allocation.owner = pack.owner;
         allocation.asset_mint = selected.mint;
-        allocation.amount = tier.amount_base;
+        allocation.amount = allocation_amount;
         allocation.claimed = false;
-        allocation.bump = 0;
+        allocation.bump = ctx.bumps.allocation;
 
         Ok(())
     }
 
     pub fn claim_allocation(ctx: Context<ClaimAllocation>, pack_id: u64) -> Result<()> {
-        let config = &mut ctx.accounts.config;
+        let config = &ctx.accounts.config;
         let allocation = &mut ctx.accounts.allocation;
         let pack = &mut ctx.accounts.pack;
 
@@ -229,41 +232,48 @@ pub mod sharedstocks {
 
         let asset_index = find_asset(config.asset_mints, allocation.asset_mint)?;
         require!(config.asset_enabled[asset_index], ErrorCode::AssetDisabled);
-        require!(config.asset_inventory[asset_index] >= allocation.amount, ErrorCode::InsufficientAssetInventory);
-
-        let bump = derive_vault_bump(ctx.program_id, allocation.asset_mint)?;
-        let signer_seeds = [
-            b"vault".as_ref(),
-            allocation.asset_mint.as_ref(),
-            std::slice::from_ref(&bump),
-        ];
-
-        let ix = spl_token::instruction::transfer_checked(
-            &ctx.accounts.token_program.key(),
-            &ctx.accounts.asset_vault_ata.key(),
-            &ctx.accounts.asset_mint.key(),
-            &ctx.accounts.user_ata.key(),
-            &ctx.accounts.vault_authority.key(),
-            &[],
-            allocation.amount,
-            ctx.accounts.asset_mint.decimals,
-        )?;
-
-        invoke_signed(
-            &ix,
-            &[
-                ctx.accounts.asset_vault_ata.to_account_info(),
-                ctx.accounts.asset_mint.to_account_info(),
-                ctx.accounts.user_ata.to_account_info(),
-                ctx.accounts.vault_authority.to_account_info(),
-            ],
-            &[&signer_seeds],
-        )?;
-
-        config.asset_inventory[asset_index] = config
-            .asset_inventory[asset_index]
-            .checked_sub(allocation.amount)
+        let transfer_fee_config = get_mint_extension_data::<TransferFeeConfig>(
+            &ctx.accounts.asset_mint.to_account_info(),
+        )
+        .map_err(|_| error!(ErrorCode::InvalidTransferFeeConfig))?;
+        let transfer_fee = transfer_fee_config.get_epoch_fee(Clock::get()?.epoch);
+        let gross_amount = transfer_fee
+            .calculate_pre_fee_amount(allocation.amount)
             .ok_or(ErrorCode::ArithmeticOverflow)?;
+        let transfer_fee_amount = transfer_fee
+            .calculate_fee(gross_amount)
+            .ok_or(ErrorCode::ArithmeticOverflow)?;
+        require!(
+            gross_amount
+                .checked_sub(transfer_fee_amount)
+                .ok_or(ErrorCode::ArithmeticOverflow)?
+                == allocation.amount,
+            ErrorCode::InvalidTransferFeeConfig
+        );
+        require!(ctx.accounts.asset_vault_ata.amount >= gross_amount, ErrorCode::InsufficientAssetInventory);
+
+        let signer_seeds: &[&[u8]] = &[
+            b"vault",
+            allocation.asset_mint.as_ref(),
+            &[ctx.bumps.vault_authority],
+        ];
+        let transfer = TransferCheckedWithFee {
+            token_program_id: ctx.accounts.token_program.to_account_info(),
+            source: ctx.accounts.asset_vault_ata.to_account_info(),
+            mint: ctx.accounts.asset_mint.to_account_info(),
+            destination: ctx.accounts.user_ata.to_account_info(),
+            authority: ctx.accounts.vault_authority.to_account_info(),
+        };
+        token_2022_extensions::transfer_checked_with_fee(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                transfer,
+                &[signer_seeds],
+            ),
+            gross_amount,
+            ctx.accounts.asset_mint.decimals,
+            transfer_fee_amount,
+        )?;
 
         allocation.claimed = true;
         pack.claimed = true;
@@ -294,7 +304,7 @@ pub struct AdminOnly<'info> {
 pub struct BuyPacks<'info> {
     #[account(mut, seeds = [b"config"], bump = config.bump)]
     pub config: Account<'info, Config>,
-    #[account(init, payer = buyer, space = 8 + Pack::SPACE)]
+    #[account(init, payer = buyer, space = 8 + Pack::SPACE, seeds = [b"pack", config.next_pack_id.to_le_bytes().as_ref()], bump)]
     pub pack: Account<'info, Pack>,
     #[account(mut)]
     pub buyer: Signer<'info>,
@@ -310,28 +320,34 @@ pub struct BuyPacks<'info> {
 
 #[derive(Accounts)]
 pub struct GiftPack<'info> {
-    #[account(mut)]
+    #[account(mut, seeds = [b"pack", pack.id.to_le_bytes().as_ref()], bump = pack.bump)]
     pub pack: Account<'info, Pack>,
     pub owner: Signer<'info>,
-}
-
-#[derive(Accounts)]
-pub struct SubmitRandomness<'info> {
-    #[account(mut, seeds = [b"config"], bump = config.bump)]
-    pub config: Account<'info, Config>,
-    pub authority: Signer<'info>,
 }
 
 #[derive(Accounts)]
 pub struct UnpackPack<'info> {
     #[account(mut, seeds = [b"config"], bump = config.bump)]
     pub config: Account<'info, Config>,
-    #[account(mut)]
+    #[account(mut, seeds = [b"pack", pack.id.to_le_bytes().as_ref()], bump = pack.bump)]
     pub pack: Account<'info, Pack>,
-    #[account(init, payer = owner, space = 8 + Allocation::SPACE)]
+    #[account(init, payer = owner, space = 8 + Allocation::SPACE, seeds = [b"allocation", pack.key().as_ref()], bump)]
     pub allocation: Account<'info, Allocation>,
     #[account(mut)]
     pub owner: Signer<'info>,
+    #[account(constraint = allocation.asset_mint == Pubkey::default() @ ErrorCode::AssetNotFound)]
+    pub asset_mint: InterfaceAccount<'info, InterfaceMint>,
+    #[account(
+        constraint = asset_vault_ata.mint == asset_mint.key() @ ErrorCode::InvalidAssetVault,
+        constraint = asset_vault_ata.owner == vault_authority.key() @ ErrorCode::InvalidAssetVault,
+    )]
+    pub asset_vault_ata: InterfaceAccount<'info, InterfaceTokenAccount>,
+    #[account(seeds = [b"vault", asset_mint.key().as_ref()], bump)]
+    /// CHECK: PDA authority for the Token-2022 reward vault.
+    pub vault_authority: UncheckedAccount<'info>,
+    pub token_program: Interface<'info, TokenInterface>,
+    /// CHECK: The account is validated against the deployed Switchboard On-Demand mainnet program.
+    pub randomness_account: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -339,22 +355,26 @@ pub struct UnpackPack<'info> {
 pub struct ClaimAllocation<'info> {
     #[account(mut, seeds = [b"config"], bump = config.bump)]
     pub config: Account<'info, Config>,
-    #[account(mut)]
+    #[account(mut, seeds = [b"pack", pack.id.to_le_bytes().as_ref()], bump = pack.bump)]
     pub pack: Account<'info, Pack>,
-    #[account(mut)]
+    #[account(mut, seeds = [b"allocation", pack.key().as_ref()], bump = allocation.bump)]
     pub allocation: Account<'info, Allocation>,
     #[account(mut)]
     pub owner: Signer<'info>,
-    #[account(mut)]
-    pub asset_mint: Account<'info, Mint>,
-    #[account(mut)]
-    pub asset_vault_ata: Account<'info, TokenAccount>,
-    #[account(mut)]
-    pub user_ata: Account<'info, TokenAccount>,
+    #[account(constraint = asset_mint.key() == allocation.asset_mint @ ErrorCode::AssetNotFound)]
+    pub asset_mint: InterfaceAccount<'info, InterfaceMint>,
+    #[account(
+        mut,
+        constraint = asset_vault_ata.mint == asset_mint.key() @ ErrorCode::InvalidAssetVault,
+        constraint = asset_vault_ata.owner == vault_authority.key() @ ErrorCode::InvalidAssetVault,
+    )]
+    pub asset_vault_ata: InterfaceAccount<'info, InterfaceTokenAccount>,
+    #[account(mut, constraint = user_ata.mint == asset_mint.key() @ ErrorCode::InvalidUserTokenAccount)]
+    pub user_ata: InterfaceAccount<'info, InterfaceTokenAccount>,
+    #[account(seeds = [b"vault", asset_mint.key().as_ref()], bump)]
     /// CHECK: This is a PDA authority derived from the mint and owned by this program.
-    #[account(mut)]
     pub vault_authority: UncheckedAccount<'info>,
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 #[account]
@@ -362,21 +382,19 @@ pub struct Config {
     pub authority: Pubkey,
     pub usdc_mint: Pubkey,
     pub treasury: Pubkey,
-    pub randomness_oracle: Pubkey,
     pub pack_price: u64,
     pub next_pack_id: u64,
     pub paused: bool,
-    pub current_randomness: [u8; 32],
     pub reward_tiers: [RewardTier; MAX_TIERS],
     pub asset_mints: [Pubkey; MAX_ASSETS],
     pub asset_enabled: [bool; MAX_ASSETS],
-    pub asset_inventory: [u64; MAX_ASSETS],
+    pub asset_reward_amounts: [[u64; MAX_TIERS]; MAX_ASSETS],
     pub asset_count: u8,
     pub bump: u8,
 }
 
 impl Config {
-    pub const SPACE: usize = 32 + 32 + 32 + 32 + 8 + 8 + 1 + 32 + (RewardTier::SPACE * MAX_TIERS) + (32 * MAX_ASSETS) + (1 * MAX_ASSETS) + (8 * MAX_ASSETS) + 1 + 1;
+    pub const SPACE: usize = 32 + 32 + 32 + 8 + 8 + 1 + (RewardTier::SPACE * MAX_TIERS) + (32 * MAX_ASSETS) + (1 * MAX_ASSETS) + (8 * MAX_TIERS * MAX_ASSETS) + 1 + 1;
 }
 
 #[account]
@@ -413,11 +431,10 @@ impl Allocation {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RewardTier {
     pub weight: u16,
-    pub amount_base: u64,
 }
 
 impl RewardTier {
-    pub const SPACE: usize = 2 + 8;
+    pub const SPACE: usize = 2;
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -442,16 +459,20 @@ pub enum ErrorCode {
     #[msg("Incorrect USDC mint.")] InvalidUsdcMint,
     #[msg("Not enough USDC balance to complete the purchase.")] InsufficientUsdc,
     #[msg("The configured reward asset inventory is full.")] AssetLimitReached,
-    #[msg("The provided inventory value is invalid.")] InvalidInventory,
+    #[msg("Every reward tier must have a positive token amount.")] InvalidRewardAmounts,
+    #[msg("No reward amount is configured for this asset and tier.")] NoRewardAmountConfigured,
     #[msg("The allocation has already been claimed.")] AllocationAlreadyClaimed,
     #[msg("There is not enough funding to claim this allocation.")] InsufficientAssetInventory,
     #[msg("The requested quantity is invalid.")] InvalidQuantity,
     #[msg("Arithmetic overflow or underflow.")] ArithmeticOverflow,
     #[msg("Counter overflow reached.")] CounterOverflow,
-    #[msg("Unauthorized randomness authority.")] UnauthorizedRandomness,
     #[msg("The signer is not the configured admin.")] UnauthorizedAuthority,
     #[msg("The provided asset mint is not eligible.")] AssetNotFound,
     #[msg("Asset inventory not available.")] AssetInventoryNotAvailable,
+    #[msg("The reward vault is not controlled by the program or does not match the mint.")] InvalidAssetVault,
+    #[msg("The recipient token account does not match the reward mint.")] InvalidUserTokenAccount,
+    #[msg("The reward mint does not expose a valid Token-2022 transfer-fee configuration.")] InvalidTransferFeeConfig,
+    #[msg("The randomness account is not a valid Switchboard On-Demand mainnet account.")] InvalidRandomnessAccount,
 }
 
 fn find_asset(asset_mints: [Pubkey; MAX_ASSETS], mint: Pubkey) -> Result<usize> {
@@ -461,13 +482,7 @@ fn find_asset(asset_mints: [Pubkey; MAX_ASSETS], mint: Pubkey) -> Result<usize> 
         .ok_or(ErrorCode::AssetNotFound.into())
 }
 
-fn derive_vault_bump(program_id: &Pubkey, mint: Pubkey) -> Result<u8> {
-    let (vault, bump) = Pubkey::find_program_address(&[b"vault", mint.as_ref()], program_id);
-    let _ = vault;
-    Ok(bump)
-}
-
-fn select_reward_tier(tiers: [RewardTier; MAX_TIERS], randomness: [u8; 32]) -> Option<RewardTier> {
+fn select_reward_tier(tiers: [RewardTier; MAX_TIERS], randomness: [u8; 32]) -> Option<usize> {
     let total_weight: u64 = tiers.iter().map(|tier| tier.weight as u64).sum();
     if total_weight == 0 {
         return None;
@@ -479,55 +494,35 @@ fn select_reward_tier(tiers: [RewardTier; MAX_TIERS], randomness: [u8; 32]) -> O
         % total_weight;
 
     let mut cursor = 0u64;
-    for tier in tiers {
+    for (index, tier) in tiers.iter().enumerate() {
         cursor += tier.weight as u64;
         if roll < cursor {
-            return Some(tier);
+            return Some(index);
         }
     }
 
-    tiers.last().copied()
+    Some(MAX_TIERS - 1)
 }
 
 fn select_asset(config: &Config, randomness: [u8; 32]) -> Option<AssetChoice> {
-    let mut choices = Vec::new();
-    for index in 0..config.asset_count as usize {
-        if config.asset_enabled[index] && config.asset_inventory[index] > 0 {
-            choices.push((config.asset_mints[index], config.asset_inventory[index]));
-        }
-    }
-
-    if choices.is_empty() {
+    let enabled: Vec<Pubkey> = config.asset_mints[..config.asset_count as usize]
+        .iter()
+        .zip(config.asset_enabled[..config.asset_count as usize].iter())
+        .filter_map(|(mint, enabled)| enabled.then_some(*mint))
+        .collect();
+    if enabled.is_empty() {
         return None;
     }
-
-    let total_inventory: u64 = choices.iter().map(|(_, inventory)| *inventory).sum();
     let roll = u64::from(randomness[3])
         .wrapping_add(u64::from(randomness[4]))
         .wrapping_add(u64::from(randomness[5]))
-        % total_inventory;
-
-    let mut cursor = 0u64;
-    for (mint, inventory) in &choices {
-        cursor += *inventory;
-        if roll < cursor {
-            return Some(AssetChoice {
-                mint: *mint,
-                inventory: *inventory,
-            });
-        }
-    }
-
-    choices.last().map(|(mint, inventory)| AssetChoice {
-        mint: *mint,
-        inventory: *inventory,
-    })
+        % enabled.len() as u64;
+    Some(AssetChoice { mint: enabled[roll as usize] })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AssetChoice {
     pub mint: Pubkey,
-    pub inventory: u64,
 }
 
 #[cfg(test)]
@@ -537,15 +532,15 @@ mod tests {
     #[test]
     fn reward_tier_selector_uses_configured_weights() {
         let tiers = [
-            RewardTier { weight: 8000, amount_base: 4000000 },
-            RewardTier { weight: 1500, amount_base: 10000000 },
-            RewardTier { weight: 400, amount_base: 25000000 },
-            RewardTier { weight: 90, amount_base: 100000000 },
-            RewardTier { weight: 10, amount_base: 500000000 },
+            RewardTier { weight: 8000 },
+            RewardTier { weight: 1500 },
+            RewardTier { weight: 400 },
+            RewardTier { weight: 90 },
+            RewardTier { weight: 10 },
         ];
 
         let selected = select_reward_tier(tiers, [0; 32]).unwrap();
-        assert_eq!(selected.amount_base, 4_000_000);
+        assert_eq!(selected, 0);
     }
 
     #[test]
@@ -554,21 +549,19 @@ mod tests {
             authority: Pubkey::new_unique(),
             usdc_mint: Pubkey::new_unique(),
             treasury: Pubkey::new_unique(),
-            randomness_oracle: Pubkey::new_unique(),
             pack_price: 100_000,
             next_pack_id: 1,
             paused: false,
-            current_randomness: [1, 2, 3, 4, 5, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
             reward_tiers: [
-                RewardTier { weight: 8000, amount_base: 4_000_000 },
-                RewardTier { weight: 1500, amount_base: 10_000_000 },
-                RewardTier { weight: 400, amount_base: 25_000_000 },
-                RewardTier { weight: 90, amount_base: 100_000_000 },
-                RewardTier { weight: 10, amount_base: 500_000_000 },
+                RewardTier { weight: 8000 },
+                RewardTier { weight: 1500 },
+                RewardTier { weight: 400 },
+                RewardTier { weight: 90 },
+                RewardTier { weight: 10 },
             ],
             asset_mints: [Pubkey::new_unique(); MAX_ASSETS],
             asset_enabled: [false; MAX_ASSETS],
-            asset_inventory: [0; MAX_ASSETS],
+            asset_reward_amounts: [[0; MAX_TIERS]; MAX_ASSETS],
             asset_count: 2,
             bump: 255,
         };
@@ -577,11 +570,7 @@ mod tests {
         config.asset_mints[1] = Pubkey::new_unique();
         config.asset_enabled[0] = true;
         config.asset_enabled[1] = true;
-        config.asset_inventory[0] = 8;
-        config.asset_inventory[1] = 2;
-
         let selected = select_asset(&config, [1, 2, 3, 4, 5, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]).unwrap();
-        assert!(selected.inventory > 0);
-        assert!(config.asset_enabled[0] || config.asset_enabled[1]);
+        assert!(selected.mint == config.asset_mints[0] || selected.mint == config.asset_mints[1]);
     }
 }
