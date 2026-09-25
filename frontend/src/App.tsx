@@ -1,15 +1,24 @@
 import {
   ConnectionProvider,
   WalletProvider,
+  useConnection,
   useWallet,
 } from '@solana/wallet-adapter-react'
 import { WalletModalProvider, WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets'
 import { clusterApiUrl, type Cluster } from '@solana/web3.js'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import '@solana/wallet-adapter-react-ui/styles.css'
 import './App.css'
 import { fetchPreStocks, type PreStock } from './prestocksApi'
+import {
+  executePreStockSwap,
+  giftPreStock,
+  loadWalletHoldings,
+  transactionErrorMessage,
+  type Holding,
+  type PurchaseStatus,
+} from './solanaExecution'
 
 const PACK_OPTIONS = [1, 10, 20, 50, 100, 200]
 
@@ -28,6 +37,21 @@ function formatValue(value: number | undefined): string {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`
   if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`
   return `$${value.toLocaleString()}`
+}
+
+function shortAddress(value: string): string {
+  return `${value.slice(0, 4)}...${value.slice(-4)}`
+}
+
+function purchaseStatusLabel(status: PurchaseStatus | null): string {
+  if (status === 'preparing') return 'Preparing purchase'
+  if (status === 'getting-quote') return 'Getting quote'
+  if (status === 'awaiting-wallet') return 'Awaiting wallet confirmation'
+  if (status === 'submitted') return 'Transaction submitted'
+  if (status === 'confirming') return 'Confirming on Solana'
+  if (status === 'confirmed') return 'Purchase confirmed'
+  if (status === 'received') return 'Stocks received'
+  return ''
 }
 
 function ExploreView({ onBack }: { onBack: () => void }) {
@@ -137,9 +161,85 @@ function SharedStocksApp() {
   const [activeView, setActiveView] = useState<ViewState>('home')
   const [quantity, setQuantity] = useState(20)
   const [packFilter, setPackFilter] = useState<PackFilter>('all')
-  const { publicKey } = useWallet()
+  const [stocks, setStocks] = useState<PreStock[]>([])
+  const [holdings, setHoldings] = useState<Holding[]>([])
+  const [selectedSymbol, setSelectedSymbol] = useState('')
+  const [purchaseStatus, setPurchaseStatus] = useState<PurchaseStatus | null>(null)
+  const [purchaseError, setPurchaseError] = useState<string | null>(null)
+  const [purchaseSignature, setPurchaseSignature] = useState<string | null>(null)
+  const [giftTarget, setGiftTarget] = useState<Holding | null>(null)
+  const [giftAmount, setGiftAmount] = useState('')
+  const [giftRecipient, setGiftRecipient] = useState('')
+  const [giftError, setGiftError] = useState<string | null>(null)
+  const [giftSignature, setGiftSignature] = useState<string | null>(null)
+  const { connection } = useConnection()
+  const { publicKey, sendTransaction } = useWallet()
 
   const total = (quantity * 0.1).toFixed(2)
+
+  useEffect(() => {
+    fetchPreStocks().then((availableStocks) => {
+      setStocks(availableStocks)
+      if (!selectedSymbol) setSelectedSymbol(availableStocks.find((stock) => stock.contractAddress)?.symbol ?? '')
+    }).catch(() => setStocks([]))
+  }, [selectedSymbol])
+
+  const refreshHoldings = useCallback(() => {
+    if (!publicKey) {
+      setHoldings([])
+      return Promise.resolve()
+    }
+    const supportedMints = new Set(stocks.flatMap((stock) => stock.contractAddress ? [stock.contractAddress] : []))
+    return loadWalletHoldings(connection, publicKey, supportedMints).then(setHoldings).catch(() => setHoldings([]))
+  }, [connection, publicKey, stocks])
+
+  useEffect(() => {
+    refreshHoldings()
+  }, [refreshHoldings])
+
+  const selectedStock = stocks.find((stock) => stock.symbol === selectedSymbol && stock.contractAddress)
+
+  const handlePurchase = async () => {
+    if (!publicKey || !selectedStock?.contractAddress) return
+    setPurchaseError(null)
+    setPurchaseSignature(null)
+    try {
+      const result = await executePreStockSwap({
+        connection,
+        wallet: { publicKey, sendTransaction },
+        outputMint: selectedStock.contractAddress,
+        amountUsd: Number(total),
+        onStatus: setPurchaseStatus,
+      })
+      setPurchaseSignature(result.signature)
+      await refreshHoldings()
+      setActiveView('packs')
+    } catch (error) {
+      setPurchaseStatus(null)
+      setPurchaseError(transactionErrorMessage(error))
+    }
+  }
+
+  const handleGift = async () => {
+    if (!publicKey || !giftTarget) return
+    setGiftError(null)
+    setGiftSignature(null)
+    try {
+      const result = await giftPreStock({
+        connection,
+        wallet: { publicKey, sendTransaction },
+        holding: giftTarget,
+        recipientAddress: giftRecipient.trim(),
+        amount: Number(giftAmount),
+      })
+      setGiftSignature(result.signature)
+      setGiftRecipient('')
+      setGiftAmount('')
+      await refreshHoldings()
+    } catch (error) {
+      setGiftError(transactionErrorMessage(error))
+    }
+  }
 
   const onchainMetrics = [
     { label: 'Packs bought', value: '--', hint: 'Live data after contract launch' },
@@ -352,6 +452,20 @@ function SharedStocksApp() {
                     ))}
                   </div>
 
+                  <label className="search-field stock-picker-field">
+                    <span aria-hidden="true">◈</span>
+                    <select value={selectedSymbol} onChange={(event) => setSelectedSymbol(event.target.value)}>
+                      <option value="">Choose a PreStock</option>
+                      {stocks.filter((stock) => stock.contractAddress).map((stock) => (
+                        <option key={stock.symbol} value={stock.symbol}>{stock.symbol} — {stock.name.replace(/ PreStocks$/, '')}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {selectedStock && <p className="portfolio-note">Jupiter will swap the exact USDC amount into {selectedStock.symbol}. The received token amount is verified from Solana after confirmation.</p>}
+                  {purchaseStatus && <div className="transaction-status">{purchaseStatusLabel(purchaseStatus)}</div>}
+                  {purchaseError && <div className="explore-state error-state">{purchaseError}</div>}
+
                   <div className="purchase-summary">
                     <div>
                       <span>Quantity</span>
@@ -363,9 +477,10 @@ function SharedStocksApp() {
                     </div>
                   </div>
 
-                  <button type="button" className="sheet-primary" onClick={() => publicKey && setActiveView('home')}>
-                    {publicKey ? 'Buy Packs' : 'Connect wallet'}
+                  <button type="button" className="sheet-primary" onClick={publicKey ? handlePurchase : () => undefined} disabled={Boolean(purchaseStatus) || !selectedStock}>
+                    {!publicKey ? 'Connect wallet' : purchaseStatus ? purchaseStatusLabel(purchaseStatus) : 'Buy Packs'}
                   </button>
+                  {purchaseSignature && <a className="transaction-link" href={`https://solscan.io/tx/${purchaseSignature}`} target="_blank" rel="noreferrer">View confirmed swap ↗</a>}
                 </>
               )}
 
@@ -387,8 +502,36 @@ function SharedStocksApp() {
                     </div>
                   </div>
                   <div className="portfolio-note">
-                    Pack records will appear here once the contract is live and wallet data is available on-chain.
+                    Holdings below are read from your connected wallet after confirmed Solana transactions.
                   </div>
+                  {holdings.length === 0 && <div className="portfolio-placeholder"><div className="portfolio-badge">No supported PreStock holdings</div></div>}
+                  <div className="holding-list">
+                    {holdings.map((holding) => {
+                      const stock = stocks.find((item) => item.contractAddress === holding.mint)
+                      return (
+                        <div className="holding-row" key={holding.mint}>
+                          <div><strong>{stock?.symbol ?? shortAddress(holding.mint)}</strong><span>{stock?.name.replace(/ PreStocks$/, '') ?? holding.mint}</span></div>
+                          <strong>{holding.amount.toLocaleString(undefined, { maximumFractionDigits: 9 })}</strong>
+                          <button type="button" className="mini-button" onClick={() => { setGiftTarget(holding); setGiftError(null); setGiftSignature(null) }}>Gift</button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {giftTarget && (
+                    <div className="gift-form">
+                      <div className="sheet-header">Gift {stocks.find((stock) => stock.contractAddress === giftTarget.mint)?.symbol ?? 'PreStock'}</div>
+                      <input value={giftRecipient} onChange={(event) => setGiftRecipient(event.target.value)} placeholder="Recipient Solana address" aria-label="Recipient Solana address" />
+                      <input value={giftAmount} onChange={(event) => setGiftAmount(event.target.value)} placeholder={`Amount up to ${giftTarget.amount}`} inputMode="decimal" aria-label="Amount to gift" />
+                      {giftError && <div className="explore-state error-state">{giftError}</div>}
+                      <button type="button" className="sheet-primary" onClick={handleGift} disabled={!giftRecipient || !giftAmount}>Confirm gift</button>
+                      {giftSignature && (
+                        <>
+                          <a className="transaction-link" href={`https://solscan.io/tx/${giftSignature}`} target="_blank" rel="noreferrer">View confirmed transfer ↗</a>
+                          <button type="button" className="secondary-button" onClick={() => window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(`I just gifted ${giftAmount} of ${stocks.find((stock) => stock.contractAddress === giftTarget.mint)?.symbol ?? 'a PreStock'} to a friend — investing in their future.`)}`, '_blank', 'noopener,noreferrer')}>Share gift on X</button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
 

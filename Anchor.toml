@@ -6,17 +6,17 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-sharedstocks = "HCqpbmtJqBaTPoD23QLCQDTF8shAR2Xa82CNoMikZAGj"
+sharedstocks = "4R3qUUWRrsoMs3zwLh6Nfc6iCQNERmpYspZVRwomB3Pk"
 
 [programs.mainnet]
-sharedstocks = "HCqpbmtJqBaTPoD23QLCQDTF8shAR2Xa82CNoMikZAGj"
+sharedstocks = "4R3qUUWRrsoMs3zwLh6Nfc6iCQNERmpYspZVRwomB3Pk"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
 cluster = "Mainnet"
-wallet = "~/.config/solana/id.json"
+wallet = ".keys/deployer.json"
 
 [scripts]
 test = "yarn ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"

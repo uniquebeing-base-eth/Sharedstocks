@@ -1,5 +1,14 @@
 export const PRESTOCKS_API_URL = 'https://prestocks.com/api/prestocks'
 const PRESTOCKS_SNAPSHOT_URL = '/prestocks.json'
+const SUPPORTED_PRESTOCK_SYMBOLS = new Set([
+  'ANTHROPIC',
+  'ANDURIL',
+  'OPENAI',
+  'NEURALINK',
+  'FIGUREAI',
+  'KALSHI',
+  'POLYMARKET',
+])
 
 export type PreStock = {
   name: string
@@ -63,14 +72,18 @@ function writeSessionCache(stocks: PreStock[]): void {
   }
 }
 
+function supportedStocks(stocks: PreStock[]): PreStock[] {
+  return stocks.filter((stock) => SUPPORTED_PRESTOCK_SYMBOLS.has(stock.symbol))
+}
+
 export async function fetchPreStocks(forceRefresh = false): Promise<PreStock[]> {
   if (!forceRefresh && cachedStocks) return cachedStocks
 
   if (!forceRefresh) {
     const sessionStocks = readSessionCache()
     if (sessionStocks) {
-      cachedStocks = sessionStocks
-      return sessionStocks
+      cachedStocks = supportedStocks(sessionStocks)
+      return cachedStocks
     }
   }
 
@@ -83,9 +96,9 @@ export async function fetchPreStocks(forceRefresh = false): Promise<PreStock[]> 
       if (!response.ok) throw new Error(`PreStocks returned ${response.status}`)
       const payload: unknown = await response.json()
       if (!Array.isArray(payload)) throw new Error('PreStocks returned an unexpected response')
-      return payload
+      return supportedStocks(payload
         .filter((item): item is ApiPreStock => typeof item === 'object' && item !== null)
-        .map(normalizeStock)
+        .map(normalizeStock))
     })
     .then((stocks) => {
       cachedStocks = stocks

@@ -8,7 +8,7 @@ use anchor_spl::token_interface::{get_mint_extension_data, Mint as InterfaceMint
 use spl_token_2022::extension::{transfer_fee::TransferFeeConfig, StateWithExtensions};
 use spl_token_2022::state::Account as Token2022Account;
 
-declare_id!("HCqpbmtJqBaTPoD23QLCQDTF8shAR2Xa82CNoMikZAGj");
+declare_id!("4R3qUUWRrsoMs3zwLh6Nfc6iCQNERmpYspZVRwomB3Pk");
 
 const MAX_TIERS: usize = 5;
 const MAX_ASSETS: usize = 7;
