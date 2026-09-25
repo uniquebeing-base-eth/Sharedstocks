@@ -17,7 +17,6 @@ import './App.css'
 import { fetchPreStocks, type PreStock } from './prestocksApi'
 import {
   executePreStockSwap,
-  getWalletBalanceWithFallback,
   giftPreStock,
   loadWalletHoldings,
   transactionErrorMessage,
@@ -209,11 +208,6 @@ function SharedStocksApp() {
     setPurchaseError(null)
     setPurchaseSignature(null)
     try {
-      const balanceLamports = await getWalletBalanceWithFallback(connection, publicKey)
-      const minimumLamports = 5_000_000
-      if (balanceLamports < minimumLamports) {
-        throw new Error(`Insufficient SOL for fees. This wallet has ${(balanceLamports / 1e9).toFixed(4)} SOL; add at least ${(minimumLamports / 1e9).toFixed(3)} SOL and try again.`)
-      }
       const result = await executePreStockSwap({
         connection,
         wallet: { publicKey, sendTransaction },
