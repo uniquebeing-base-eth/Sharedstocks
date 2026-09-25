@@ -72,19 +72,31 @@ function formatHoldingAmount(holding: Holding): string {
   return fraction ? `${whole}.${fraction}` : whole
 }
 
-type WalletActivity = { bought: number; gifted: number }
+type WalletActivity = { bought: number; gifted: number; signatures: string[] }
+
+type HoldingsSyncState = {
+  walletAddress: string
+  verifiedAt: number | null
+  refreshing: boolean
+  error: string | null
+}
+
+function emptyWalletActivity(): WalletActivity {
+  return { bought: 0, gifted: 0, signatures: [] }
+}
 
 function readWalletActivity(walletAddress: string): WalletActivity {
   try {
     const stored = localStorage.getItem(`sharedstocks-activity:${walletAddress}`)
-    if (!stored) return { bought: 0, gifted: 0 }
+    if (!stored) return emptyWalletActivity()
     const activity = JSON.parse(stored) as Partial<WalletActivity>
     return {
       bought: Number.isFinite(activity.bought) ? Number(activity.bought) : 0,
       gifted: Number.isFinite(activity.gifted) ? Number(activity.gifted) : 0,
+      signatures: Array.isArray(activity.signatures) ? activity.signatures.filter((signature): signature is string => typeof signature === 'string') : [],
     }
   } catch {
-    return { bought: 0, gifted: 0 }
+    return emptyWalletActivity()
   }
 }
 
@@ -96,13 +108,29 @@ function writeWalletActivity(walletAddress: string, activity: WalletActivity): v
   }
 }
 
+function recordWalletActivity(walletAddress: string, kind: 'bought' | 'gifted', amount: number, signature: string): WalletActivity {
+  const activity = readWalletActivity(walletAddress)
+  if (activity.signatures.includes(signature)) return activity
+  const nextActivity: WalletActivity = {
+    bought: activity.bought + (kind === 'bought' ? amount : 0),
+    gifted: activity.gifted + (kind === 'gifted' ? amount : 0),
+    signatures: [...activity.signatures, signature],
+  }
+  writeWalletActivity(walletAddress, nextActivity)
+  return nextActivity
+}
+
 function readWalletHoldings(walletAddress: string): Holding[] {
   try {
     const stored = localStorage.getItem(`sharedstocks-holdings:${walletAddress}`)
     if (!stored) return []
     const parsed: unknown = JSON.parse(stored)
-    if (!Array.isArray(parsed)) return []
-    return parsed.map((item) => ({
+    const cached = Array.isArray(parsed)
+      ? parsed
+      : typeof parsed === 'object' && parsed !== null && Array.isArray((parsed as { holdings?: unknown }).holdings)
+        ? (parsed as { holdings: unknown[] }).holdings
+        : []
+    return cached.map((item) => ({
       mint: String(item.mint),
       amount: Number(item.amount),
       rawAmount: String(item.rawAmount),
@@ -115,13 +143,16 @@ function readWalletHoldings(walletAddress: string): Holding[] {
   }
 }
 
-function writeWalletHoldings(walletAddress: string, holdings: Holding[]): void {
+function writeWalletHoldings(walletAddress: string, holdings: Holding[], verifiedAt = Date.now()): void {
   try {
-    localStorage.setItem(`sharedstocks-holdings:${walletAddress}`, JSON.stringify(holdings.map((holding) => ({
-      ...holding,
-      tokenProgram: holding.tokenProgram.toBase58(),
-      tokenAccount: holding.tokenAccount?.toBase58(),
-    }))))
+    localStorage.setItem(`sharedstocks-holdings:${walletAddress}`, JSON.stringify({
+      holdings: holdings.map((holding) => ({
+        ...holding,
+        tokenProgram: holding.tokenProgram.toBase58(),
+        tokenAccount: holding.tokenAccount?.toBase58(),
+      })),
+      verifiedAt,
+    }))
   } catch {
     // Keep the current session usable when browser storage is unavailable.
   }
@@ -239,6 +270,7 @@ function SharedStocksApp() {
     walletAddress: '',
     holdings: [],
   })
+  const [holdingsSync, setHoldingsSync] = useState<HoldingsSyncState>({ walletAddress: '', verifiedAt: null, refreshing: false, error: null })
   const [selectedSymbol, setSelectedSymbol] = useState('')
   const [purchaseStatus, setPurchaseStatus] = useState<PurchaseStatus | null>(null)
   const [purchaseError, setPurchaseError] = useState<string | null>(null)
@@ -247,7 +279,7 @@ function SharedStocksApp() {
   const [giftMode, setGiftMode] = useState<'pending' | 'choice' | 'form' | 'complete' | null>(null)
   const [walletActivityState, setWalletActivityState] = useState<{ walletAddress: string; activity: WalletActivity }>({
     walletAddress: '',
-    activity: { bought: 0, gifted: 0 },
+    activity: emptyWalletActivity(),
   })
   const [isGifting, setIsGifting] = useState(false)
   const [giftTarget, setGiftTarget] = useState<Holding | null>(null)
@@ -265,11 +297,12 @@ function SharedStocksApp() {
       ? holdingsState.holdings
       : readWalletHoldings(walletAddress)
     : []
+  const activeHoldingsSync = holdingsSync.walletAddress === walletAddress ? holdingsSync : null
   const walletActivity = walletAddress
     ? walletActivityState.walletAddress === walletAddress
       ? walletActivityState.activity
       : readWalletActivity(walletAddress)
-    : { bought: 0, gifted: 0 }
+    : emptyWalletActivity()
 
   useEffect(() => {
     fetchPreStocks().then((availableStocks) => {
@@ -278,23 +311,34 @@ function SharedStocksApp() {
     }).catch(() => setStocks([]))
   }, [selectedSymbol])
 
-  const refreshHoldings = useCallback(() => {
+  const refreshHoldings = useCallback(async () => {
     if (!publicKey) {
       setHoldingsState({ walletAddress: '', holdings: [] })
-      return Promise.resolve()
+      return false
     }
     const ownerAddress = publicKey.toBase58()
     setHoldingsState((currentState) => currentState.walletAddress === ownerAddress
       ? currentState
       : { walletAddress: ownerAddress, holdings: readWalletHoldings(ownerAddress) })
-    if (stocks.length === 0) return Promise.resolve()
+    if (stocks.length === 0) return false
     const supportedMints = new Set(stocks.flatMap((stock) => stock.contractAddress ? [stock.contractAddress] : []))
-    return loadWalletHoldings(connection, publicKey, supportedMints)
-      .then((nextHoldings) => {
-        setHoldingsState({ walletAddress: ownerAddress, holdings: nextHoldings })
-        writeWalletHoldings(ownerAddress, nextHoldings)
-      })
-      .catch(() => undefined)
+    setHoldingsSync({ walletAddress: ownerAddress, verifiedAt: null, refreshing: true, error: null })
+    try {
+      const nextHoldings = await loadWalletHoldings(connection, publicKey, supportedMints)
+      const verifiedAt = Date.now()
+      setHoldingsState({ walletAddress: ownerAddress, holdings: nextHoldings })
+      writeWalletHoldings(ownerAddress, nextHoldings, verifiedAt)
+      setHoldingsSync({ walletAddress: ownerAddress, verifiedAt, refreshing: false, error: null })
+      return true
+    } catch (error) {
+      setHoldingsSync((current) => ({
+        walletAddress: ownerAddress,
+        verifiedAt: current.walletAddress === ownerAddress ? current.verifiedAt : null,
+        refreshing: false,
+        error: transactionErrorMessage(error),
+      }))
+      return false
+    }
   }, [connection, publicKey, stocks])
 
   useEffect(() => {
@@ -325,12 +369,8 @@ function SharedStocksApp() {
       })
       setPurchaseSignature(result.signature)
       const purchaser = publicKey.toBase58()
-      setWalletActivityState((currentState) => {
-        const currentActivity = currentState.walletAddress === purchaser ? currentState.activity : readWalletActivity(purchaser)
-        const nextActivity = { ...currentActivity, bought: currentActivity.bought + result.holding.amount }
-        writeWalletActivity(purchaser, nextActivity)
-        return { walletAddress: purchaser, activity: nextActivity }
-      })
+      const nextActivity = recordWalletActivity(purchaser, 'bought', result.holding.amount, result.signature)
+      setWalletActivityState({ walletAddress: purchaser, activity: nextActivity })
       setHoldingsState((currentState) => {
         const currentHoldings = currentState.walletAddress === purchaser
           ? currentState.holdings
@@ -372,12 +412,8 @@ function SharedStocksApp() {
       })
       setGiftSignature(result.signature)
       const sender = publicKey.toBase58()
-      setWalletActivityState((currentState) => {
-        const currentActivity = currentState.walletAddress === sender ? currentState.activity : readWalletActivity(sender)
-        const nextActivity = { ...currentActivity, gifted: currentActivity.gifted + result.holding.amount }
-        writeWalletActivity(sender, nextActivity)
-        return { walletAddress: sender, activity: nextActivity }
-      })
+      const nextActivity = recordWalletActivity(sender, 'gifted', result.holding.amount, result.signature)
+      setWalletActivityState({ walletAddress: sender, activity: nextActivity })
       setGiftRecipient('')
       setGiftAmount('')
       setHoldingsState((currentState) => {
@@ -673,9 +709,19 @@ function SharedStocksApp() {
                       <strong>${totalHoldingValue.toFixed(2)}</strong>
                     </div>
                   </div>
-                  <div className="portfolio-note">
-                    Your collection is read from your connected wallet. Share a PreStock whenever you like.
+                  <div className="holdings-refresh-row">
+                    <div className="portfolio-note">
+                      {activeHoldingsSync?.refreshing
+                        ? 'Checking your token accounts on Solana…'
+                        : activeHoldingsSync?.error
+                          ? `Showing saved holdings. Latest Solana read failed: ${activeHoldingsSync.error}`
+                          : activeHoldingsSync?.verifiedAt
+                            ? `Wallet holdings verified on Solana at ${new Date(activeHoldingsSync.verifiedAt).toLocaleTimeString()}.`
+                            : 'Saved holdings appear while your wallet is checked on Solana.'}
+                    </div>
+                    {publicKey && <button type="button" className="mini-button" onClick={() => { void refreshHoldings() }} disabled={Boolean(activeHoldingsSync?.refreshing)}>{activeHoldingsSync?.refreshing ? 'Refreshing…' : 'Refresh'}</button>}
                   </div>
+                  {activeHoldingsSync?.error && <div className="explore-state error-state holdings-error">{activeHoldingsSync.error}</div>}
                   {!publicKey && (
                     <div className="portfolio-placeholder">
                       <div className="portfolio-badge">Connect your wallet to see your collection</div>

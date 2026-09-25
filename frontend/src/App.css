@@ -933,6 +933,29 @@
   line-height: 1.5;
 }
 
+.holdings-refresh-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.holdings-refresh-row .portfolio-note {
+  min-width: 0;
+  font-size: 0.84rem;
+}
+
+.holdings-error {
+  display: block;
+  min-height: 0;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-style: solid;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
 .holding-value {
   display: flex;
   flex-direction: column;
