@@ -51,6 +51,7 @@
 .brand-mark {
   width: 38px;
   height: 38px;
+  object-fit: cover;
   border-radius: 12px;
   background: linear-gradient(135deg, #7c5cf0 0%, #a36df0 100%);
   display: grid;
@@ -139,6 +140,18 @@
 .wallet-button:focus {
   outline: 2px solid rgba(106, 90, 232, 0.35);
   outline-offset: 2px;
+}
+
+.sheet-wallet-button {
+  width: 100% !important;
+  min-height: 52px;
+  margin-top: 18px;
+  border: 0 !important;
+  border-radius: 16px !important;
+  background: linear-gradient(135deg, #7d64f0 0%, #6c5ae8 100%) !important;
+  color: #fff !important;
+  font-weight: 800 !important;
+  box-shadow: 0 16px 24px rgba(108, 90, 232, 0.18) !important;
 }
 
 .disconnect-button {
@@ -617,6 +630,10 @@
   line-height: 1.7;
 }
 
+.info-panel li + li {
+  margin-top: 8px;
+}
+
 .sheet-backdrop {
   position: fixed;
   inset: 0;
@@ -725,6 +742,139 @@
   box-shadow: 0 16px 24px rgba(108, 90, 232, 0.18);
 }
 
+.gift-preview {
+  margin: 12px 0 0;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(238, 234, 255, 0.72);
+  color: rgba(52, 46, 77, 0.76);
+  font-size: 0.86rem;
+}
+
+.celebration-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(45, 42, 67, 0.22);
+  backdrop-filter: blur(5px);
+}
+
+.celebration-card {
+  position: relative;
+  width: min(92vw, 520px);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  padding: 34px 28px 28px;
+  border: 1px solid rgba(122, 106, 238, 0.16);
+  border-radius: 30px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 30px 90px rgba(55, 48, 93, 0.25);
+  text-align: center;
+}
+
+.celebration-mark {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 16px;
+  border-radius: 22px;
+  background: linear-gradient(135deg, #8d6af4, #d22bb0);
+  color: #fff;
+  font-size: 2rem;
+  box-shadow: 0 14px 26px rgba(126, 71, 218, 0.25);
+}
+
+.celebration-card h2 {
+  margin: 10px auto 12px;
+  max-width: 430px;
+  color: #2d2a55;
+  font-size: clamp(1.8rem, 5vw, 2.6rem);
+  line-height: 1.08;
+  letter-spacing: -0.05em;
+}
+
+.celebration-card > p {
+  max-width: 390px;
+  margin: 0 auto;
+  color: rgba(52, 46, 77, 0.75);
+  line-height: 1.5;
+}
+
+.choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.choice-button {
+  display: flex;
+  min-height: 142px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  padding: 18px 14px;
+  border: 1px solid rgba(104, 91, 214, 0.18);
+  border-radius: 20px;
+  color: #2d2a55;
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.choice-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 26px rgba(78, 61, 121, 0.12);
+}
+
+.choice-button.keep { background: rgba(238, 234, 255, 0.82); }
+.choice-button.gift { background: rgba(255, 235, 247, 0.82); }
+
+.choice-button strong {
+  font-size: 1.05rem;
+}
+
+.choice-button span {
+  color: rgba(52, 46, 77, 0.7);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.gift-receive-card {
+  display: grid;
+  gap: 6px;
+  margin: 22px 0 14px;
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(238, 234, 255, 0.8);
+  color: rgba(52, 46, 77, 0.7);
+}
+
+.gift-receive-card strong {
+  color: #2d2a55;
+  font-size: 1.25rem;
+}
+
+.celebration-card input {
+  width: 100%;
+  min-height: 52px;
+  padding: 0 14px;
+  border: 1px solid rgba(104, 91, 214, 0.18);
+  border-radius: 14px;
+  outline: none;
+  background: rgba(255, 255, 255, 0.72);
+  color: #2d2a55;
+}
+
+.celebration-card .secondary-button {
+  max-width: none;
+  margin-top: 10px;
+}
+
 .pack-status-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -781,6 +931,18 @@
 .portfolio-note {
   color: rgba(52, 46, 77, 0.72);
   line-height: 1.5;
+}
+
+.holding-value {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.holding-value span {
+  color: rgba(52, 46, 77, 0.62);
+  font-size: 0.72rem;
 }
 
 .explore-view {

@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import '@solana/wallet-adapter-react-ui/styles.css'
 import './App.css'
 import { fetchPreStocks, type PreStock } from './prestocksApi'
+import appIcon from './assets/hero.png'
 import {
   executePreStockSwap,
   giftPreStock,
@@ -56,6 +57,11 @@ function purchaseStatusLabel(status: PurchaseStatus | null): string {
   if (status === 'confirmed') return 'Purchase confirmed'
   if (status === 'received') return 'Stocks received'
   return ''
+}
+
+function holdingValue(holding: Holding, stocks: PreStock[]): number {
+  const stock = stocks.find((item) => item.contractAddress === holding.mint)
+  return holding.amount * (stock?.tokenPrice ?? 0)
 }
 
 function ExploreView({ onBack }: { onBack: () => void }) {
@@ -171,6 +177,8 @@ function SharedStocksApp() {
   const [purchaseStatus, setPurchaseStatus] = useState<PurchaseStatus | null>(null)
   const [purchaseError, setPurchaseError] = useState<string | null>(null)
   const [purchaseSignature, setPurchaseSignature] = useState<string | null>(null)
+  const [purchasedHolding, setPurchasedHolding] = useState<Holding | null>(null)
+  const [giftMode, setGiftMode] = useState<'choice' | 'form' | 'complete' | null>(null)
   const [giftTarget, setGiftTarget] = useState<Holding | null>(null)
   const [giftAmount, setGiftAmount] = useState('')
   const [giftRecipient, setGiftRecipient] = useState('')
@@ -207,6 +215,8 @@ function SharedStocksApp() {
     if (!publicKey || !selectedStock?.contractAddress) return
     setPurchaseError(null)
     setPurchaseSignature(null)
+    setGiftMode(null)
+    setPurchasedHolding(null)
     try {
       const result = await executePreStockSwap({
         connection,
@@ -218,7 +228,8 @@ function SharedStocksApp() {
       })
       setPurchaseSignature(result.signature)
       await refreshHoldings()
-      setActiveView('packs')
+      setPurchasedHolding(result.holding)
+      setGiftMode('choice')
     } catch (error) {
       setPurchaseStatus(null)
       setPurchaseError(transactionErrorMessage(error))
@@ -241,22 +252,24 @@ function SharedStocksApp() {
       setGiftRecipient('')
       setGiftAmount('')
       await refreshHoldings()
+      if (purchasedHolding?.mint === giftTarget.mint) setGiftMode('complete')
     } catch (error) {
       setGiftError(transactionErrorMessage(error))
     }
   }
 
+  const totalHoldingValue = holdings.reduce((totalValue, holding) => totalValue + holdingValue(holding, stocks), 0)
   const onchainMetrics = [
-    { label: 'Packs bought', value: '--', hint: 'Live data after contract launch' },
-    { label: 'Packs gifted', value: '--', hint: 'Gift transfers from chain' },
-    { label: 'Packs opened', value: '--', hint: 'Claimable and opened packs' },
-    { label: 'Total value', value: '--', hint: 'USDC value from on-chain records' },
+    { label: 'PreStocks owned', value: holdings.reduce((count, holding) => count + holding.amount, 0).toLocaleString(undefined, { maximumFractionDigits: 4 }), hint: 'Shares in your collection' },
+    { label: 'Companies collected', value: holdings.length.toString(), hint: 'Different PreStocks held' },
+    { label: 'Ready to gift', value: holdings.reduce((count, holding) => count + holding.amount, 0).toLocaleString(undefined, { maximumFractionDigits: 4 }), hint: 'Shares you can share' },
+    { label: 'Collection value', value: `$${totalHoldingValue.toFixed(2)}`, hint: 'Estimated value in USDC' },
   ]
 
   const packCards = [
-    { id: 'Unpacked', count: 0, tone: 'purple' },
-    { id: 'Opened', count: 0, tone: 'blue' },
-    { id: 'Gifted', count: 0, tone: 'orange' },
+    { id: 'In your collection', count: holdings.reduce((count, holding) => count + holding.amount, 0), tone: 'purple' },
+    { id: 'Companies', count: holdings.length, tone: 'blue' },
+    { id: 'Collection value', count: totalHoldingValue, tone: 'orange' },
   ]
 
   return (
@@ -264,9 +277,7 @@ function SharedStocksApp() {
       <div className="content-card">
         <header className="topbar">
           <div className="brand-wrap">
-            <div className="brand-mark" aria-hidden="true">
-              <span className="brand-mark-inner">S</span>
-            </div>
+            <img className="brand-mark" src={appIcon} alt="" />
             <h1 className="brand-name">SharedStocks</h1>
           </div>
 
@@ -295,7 +306,7 @@ function SharedStocksApp() {
             <h2>Give a piece of the future.</h2>
 
             <p>
-              Buy stock packs, open them yourself, or gift unopened packs to someone you care about.
+              Discover PreStocks, add them to your collection, and gift a share of the future to someone you care about.
             </p>
 
             <div className="price-row">
@@ -370,7 +381,7 @@ function SharedStocksApp() {
                 <div className="pack-box-visual" aria-hidden="true" />
                 <div className="pack-box-copy">
                   <small>{card.id}</small>
-                  <strong>{card.count}</strong>
+                  <strong>{card.id === 'Collection value' ? `$${card.count.toFixed(2)}` : card.count.toLocaleString(undefined, { maximumFractionDigits: 4 })}</strong>
                 </div>
               </div>
             ))}
@@ -378,31 +389,31 @@ function SharedStocksApp() {
         </section>
 
         <section className="simple-section">
-          <h3>It&apos;s simple</h3>
-          <p>A few steps to owning a piece of tomorrow&apos;s biggest companies.</p>
+          <h3>How it works</h3>
+          <p>SharedStocks makes owning and gifting PreStocks simple.</p>
 
           <div className="simple-grid">
             <div className="simple-step">
               <div className="simple-icon coin-icon" aria-hidden="true">◍</div>
               <div className="step-copy">
-                <strong>Buy</strong>
-                <span>Get stock packs for $0.10 each.</span>
+                <strong>Choose a PreStock</strong>
+                <span>Pick a company you want to invest in.</span>
               </div>
             </div>
 
             <div className="simple-step">
               <div className="simple-icon gift-icon" aria-hidden="true">✦</div>
               <div className="step-copy">
-                <strong>Open or Gift</strong>
-                <span>Keep it for yourself or send it to someone special.</span>
+                <strong>Buy a Pack</strong>
+                <span>Choose how much you want to invest and complete the purchase.</span>
               </div>
             </div>
 
             <div className="simple-step">
               <div className="simple-icon chart-icon" aria-hidden="true">↗</div>
               <div className="step-copy">
-                <strong>Receive a PreStock</strong>
-                <span>Get a real pre-IPO stock, on-chain.</span>
+                <strong>Keep or Gift</strong>
+                <span>Keep your PreStock or gift the shares to another wallet.</span>
               </div>
             </div>
           </div>
@@ -411,21 +422,24 @@ function SharedStocksApp() {
         <section className="info-section">
           <div className="info-panel">
             <span className="panel-label">How it works</span>
-            <h3>From pack to real pre-IPO ownership.</h3>
+            <h3>Own a collection of future-facing companies.</h3>
             <ol>
-              <li>Connect your wallet and buy a pack with USDC.</li>
-              <li>Open or gift the pack from your wallet at any time.</li>
-              <li>On-chain resolution assigns the reward and records the receipt.</li>
+              <li><strong>Choose a PreStock.</strong> Pick a company from the available PreStocks.</li>
+              <li><strong>Buy a pack.</strong> Choose how much you want to invest and pay with USDC.</li>
+              <li><strong>Keep or gift.</strong> Your new PreStock appears in My Packs, ready to keep or share.</li>
+              <li><strong>Watch your collection grow.</strong> Return to My Packs to see what you own.</li>
             </ol>
           </div>
 
           <div className="info-panel">
             <span className="panel-label">Beginner guide</span>
-            <h3>What to expect before the contract is live.</h3>
+            <h3>A simple guide to PreStocks.</h3>
             <ul>
-              <li>Wallet connection is required before any pack action is available.</li>
-              <li>Pack counts, gifts, open status, and value update from the chain when live.</li>
-              <li>All on-chain data stays wallet-owned and verifiable from the program itself.</li>
+              <li><strong>PreStocks</strong> are digital shares that represent a company you want to follow and own.</li>
+              <li><strong>Buying a pack</strong> uses USDC to purchase the PreStock you selected. It is not active trading.</li>
+              <li><strong>Keep It</strong> leaves the shares in your wallet and your My Packs collection.</li>
+              <li><strong>Gift It</strong> sends the exact shares from that purchase to a friend&apos;s Solana wallet.</li>
+              <li>Your collection shows the shares you own and their estimated USDC value based on the current PreStock price.</li>
             </ul>
           </div>
         </section>
@@ -483,9 +497,13 @@ function SharedStocksApp() {
                     </div>
                   </div>
 
-                  <button type="button" className="sheet-primary" onClick={publicKey ? handlePurchase : () => undefined} disabled={Boolean(purchaseStatus) || !selectedStock}>
-                    {!publicKey ? 'Connect wallet' : purchaseStatus ? purchaseStatusLabel(purchaseStatus) : 'Buy Packs'}
-                  </button>
+                  {publicKey ? (
+                    <button type="button" className="sheet-primary" onClick={handlePurchase} disabled={Boolean(purchaseStatus) || !selectedStock}>
+                      {purchaseStatus ? purchaseStatusLabel(purchaseStatus) : 'Buy Packs'}
+                    </button>
+                  ) : (
+                    <WalletMultiButton className="sheet-wallet-button" />
+                  )}
                   {purchaseSignature && <a className="transaction-link" href={`https://solscan.io/tx/${purchaseSignature}`} target="_blank" rel="noreferrer">View confirmed swap ↗</a>}
                 </>
               )}
@@ -495,16 +513,16 @@ function SharedStocksApp() {
                   <div className="sheet-header">My Packs</div>
                   <div className="pack-status-grid">
                     <div className="pack-status-card purple">
-                      <span>Unpacked</span>
-                      <strong>0</strong>
+                      <span>Shares owned</span>
+                      <strong>{holdings.reduce((count, holding) => count + holding.amount, 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</strong>
                     </div>
                     <div className="pack-status-card blue">
-                      <span>Opened</span>
-                      <strong>0</strong>
+                      <span>Companies</span>
+                      <strong>{holdings.length}</strong>
                     </div>
                     <div className="pack-status-card orange">
-                      <span>Gifted</span>
-                      <strong>0</strong>
+                      <span>Value in USDC</span>
+                      <strong>${totalHoldingValue.toFixed(2)}</strong>
                     </div>
                   </div>
                   <div className="portfolio-note">
@@ -517,7 +535,7 @@ function SharedStocksApp() {
                       return (
                         <div className="holding-row" key={holding.mint}>
                           <div><strong>{stock?.symbol ?? shortAddress(holding.mint)}</strong><span>{stock?.name.replace(/ PreStocks$/, '') ?? holding.mint}</span></div>
-                          <strong>{holding.amount.toLocaleString(undefined, { maximumFractionDigits: 9 })}</strong>
+                          <div className="holding-value"><strong>{holding.amount.toLocaleString(undefined, { maximumFractionDigits: 9 })}</strong><span>${holdingValue(holding, stocks).toFixed(2)} USDC</span></div>
                           <button type="button" className="mini-button" onClick={() => { setGiftTarget(holding); setGiftError(null); setGiftSignature(null) }}>Gift</button>
                         </div>
                       )
@@ -528,6 +546,7 @@ function SharedStocksApp() {
                       <div className="sheet-header">Gift {stocks.find((stock) => stock.contractAddress === giftTarget.mint)?.symbol ?? 'PreStock'}</div>
                       <input value={giftRecipient} onChange={(event) => setGiftRecipient(event.target.value)} placeholder="Recipient Solana address" aria-label="Recipient Solana address" />
                       <input value={giftAmount} onChange={(event) => setGiftAmount(event.target.value)} placeholder={`Amount up to ${giftTarget.amount}`} inputMode="decimal" aria-label="Amount to gift" />
+                      <p className="gift-preview">Your friend will receive <strong>{giftAmount || '0'} {stocks.find((stock) => stock.contractAddress === giftTarget.mint)?.symbol ?? 'PreStock'}</strong>.</p>
                       {giftError && <div className="explore-state error-state">{giftError}</div>}
                       <button type="button" className="sheet-primary" onClick={handleGift} disabled={!giftRecipient || !giftAmount}>Confirm gift</button>
                       {giftSignature && (
@@ -548,6 +567,57 @@ function SharedStocksApp() {
                     <div className="portfolio-badge">No on-chain holdings yet</div>
                     <div className="portfolio-note">Connect a wallet to load your actual holdings from the chain.</div>
                   </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {giftMode && purchasedHolding && (
+          <div className="celebration-backdrop">
+            <div className="celebration-card" role="dialog" aria-modal="true" aria-labelledby="purchase-complete-title">
+              <button type="button" className="sheet-close" onClick={() => { setGiftMode(null); setActiveView('packs') }} aria-label="Close purchase confirmation">×</button>
+              {giftMode === 'choice' && (
+                <>
+                  <div className="celebration-mark" aria-hidden="true">✦</div>
+                  <span className="panel-label">Purchase complete</span>
+                  <h2 id="purchase-complete-title">Hurray! 🎉<br />You just invested in your future.</h2>
+                  <p>Do you want to keep this fantastic share or share the love with someone?</p>
+                  <div className="choice-grid">
+                    <button type="button" className="choice-button keep" onClick={() => { setGiftMode(null); setActiveView('packs') }}>
+                      <strong>Keep It</strong>
+                      <span>Keep {purchasedHolding.amount.toLocaleString(undefined, { maximumFractionDigits: 9 })} shares in your collection.</span>
+                    </button>
+                    <button type="button" className="choice-button gift" onClick={() => { setGiftTarget(purchasedHolding); setGiftAmount(purchasedHolding.amount.toString()); setGiftError(null); setGiftSignature(null); setGiftMode('form') }}>
+                      <strong>Gift It</strong>
+                      <span>Share the exact shares you just purchased.</span>
+                    </button>
+                  </div>
+                </>
+              )}
+              {giftMode === 'form' && (
+                <>
+                  <span className="panel-label">Share the love</span>
+                  <h2 id="purchase-complete-title">Gift your new {stocks.find((stock) => stock.contractAddress === purchasedHolding.mint)?.symbol ?? 'PreStock'}</h2>
+                  <p>Your friend will receive the exact amount from this purchase.</p>
+                  <div className="gift-receive-card">
+                    <span>They will receive</span>
+                    <strong>{purchasedHolding.amount.toLocaleString(undefined, { maximumFractionDigits: 9 })} {stocks.find((stock) => stock.contractAddress === purchasedHolding.mint)?.symbol ?? 'PreStock'}</strong>
+                  </div>
+                  <input value={giftRecipient} onChange={(event) => setGiftRecipient(event.target.value)} placeholder="Friend's Solana wallet address" aria-label="Friend's Solana wallet address" />
+                  {giftError && <div className="explore-state error-state">{giftError}</div>}
+                  <button type="button" className="sheet-primary" onClick={handleGift} disabled={!giftRecipient || Boolean(giftSignature)}>Confirm Gift</button>
+                  <button type="button" className="secondary-button" onClick={() => { setGiftMode(null); setActiveView('packs') }}>Keep It Instead</button>
+                </>
+              )}
+              {giftMode === 'complete' && (
+                <>
+                  <div className="celebration-mark" aria-hidden="true">✓</div>
+                  <span className="panel-label">Gift sent</span>
+                  <h2 id="purchase-complete-title">Your PreStock is on its way.</h2>
+                  <p>Your friend now has the shares you just purchased. Your own collection has been updated.</p>
+                  {giftSignature && <a className="transaction-link" href={`https://solscan.io/tx/${giftSignature}`} target="_blank" rel="noreferrer">View gift confirmation ↗</a>}
+                  <button type="button" className="sheet-primary" onClick={() => { setGiftMode(null); setActiveView('packs') }}>Go to My Packs</button>
                 </>
               )}
             </div>
