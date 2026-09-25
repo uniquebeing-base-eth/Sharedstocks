@@ -21,8 +21,8 @@
     "contract_address": "Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw",
     "markPrice": 1056.64742212,
     "markValuation": 1731151640756,
-    "tokenPrice": 1052.5252975735107,
-    "impliedValuation": 1724398183999,
+    "tokenPrice": 1053.39240077654,
+    "impliedValuation": 1725818797064,
     "supply": 7381.777845061
   },
   {
@@ -60,8 +60,8 @@
     "contract_address": "PrekqLJvJ3qVdXmBGDiexvwUTF4rLFDa6HWS4HJbw9S",
     "markPrice": 336.97915778,
     "markValuation": 64192861343,
-    "tokenPrice": 430.72386087302846,
-    "impliedValuation": 82050763200,
+    "tokenPrice": 453.0418756390307,
+    "impliedValuation": 86302234528,
     "supply": 2595.27260368
   },
   {
@@ -71,10 +71,10 @@
     "image": "https://www.prestocks.com/logos/openai.png",
     "external_url": "https://www.prestocks.com/openai",
     "contract_address": "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
-    "markPrice": 1024.5594067482577,
-    "markValuation": 1269357690965,
-    "tokenPrice": 1309.484599941278,
-    "impliedValuation": 1622360145432,
+    "markPrice": 1024.541393387827,
+    "markValuation": 1269335373667,
+    "tokenPrice": 1324.3575474997829,
+    "impliedValuation": 1640786690780,
     "supply": 2826.3205316578187
   },
   {
@@ -84,10 +84,10 @@
     "image": "https://www.prestocks.com/logos/polymarket.png",
     "external_url": "https://www.prestocks.com/polymarket",
     "contract_address": "Pre8AREmFPtoJFT8mQSXQLh56cwJmM7CFDRuoGBZiUP",
-    "markPrice": 145.51207669,
-    "markValuation": 15149586018,
-    "tokenPrice": 151.50043679590843,
-    "impliedValuation": 15773047510,
+    "markPrice": 145.5361727,
+    "markValuation": 15152094707,
+    "tokenPrice": 147.56992687250408,
+    "impliedValuation": 15363833378,
     "supply": 4816.872925489
   },
   {
@@ -97,10 +97,10 @@
     "image": "https://www.prestocks.com/logos/spacex.png",
     "external_url": "https://www.prestocks.com/spacex",
     "contract_address": "PreANxuXjsy2pvisWWMNB6YaJNzr7681wJJr2rHsfTh",
-    "markPrice": 147.15104532574864,
-    "markValuation": 1929313705382,
-    "tokenPrice": 117.94120738993647,
-    "impliedValuation": 1546340274668,
-    "supply": 43712.528139565
+    "markPrice": 149.30940512627504,
+    "markValuation": 1957612200544,
+    "tokenPrice": 118.4142228401588,
+    "impliedValuation": 1552542032793,
+    "supply": 43712.52684198
   }
 ]
