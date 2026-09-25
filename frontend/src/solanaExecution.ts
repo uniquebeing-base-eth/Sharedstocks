@@ -90,6 +90,7 @@ export type Holding = {
   rawAmount: string
   decimals: number
   tokenProgram: PublicKey
+  tokenAccount?: PublicKey
 }
 
 type JupiterQuote = {
@@ -152,6 +153,17 @@ function toBaseUnits(amountUsd: number): string {
 
 function parseUiAmount(rawAmount: string, decimals: number): number {
   return Number(rawAmount) / 10 ** decimals
+}
+
+function parseRawAmount(amount: string, decimals: number): bigint {
+  const normalized = amount.trim()
+  const match = /^(\d+)(?:\.(\d*))?$/.exec(normalized)
+  if (!match || (match[2]?.length ?? 0) > decimals) {
+    throw new Error(`Enter an amount with no more than ${decimals} decimal places.`)
+  }
+  const scale = 10n ** BigInt(decimals)
+  const fraction = (match[2] ?? '').padEnd(decimals, '0')
+  return BigInt(match[1]) * scale + BigInt(fraction || '0')
 }
 
 async function confirmTransactionWithRetry(
@@ -221,6 +233,7 @@ export async function loadWalletHoldings(
           rawAmount,
           decimals: Number(parsed.tokenAmount.decimals),
           tokenProgram: account.account.owner,
+          tokenAccount: account.pubkey,
         }
       })
       .filter((holding) => supportedMints.has(holding.mint) && holding.rawAmount !== '0')
@@ -263,10 +276,13 @@ async function readActualOutput(
       let receivedRaw = 0n
       let decimals = 0
       let tokenProgram = TOKEN_PROGRAM_ID
+      let tokenAccount: PublicKey | undefined
       for (const balance of transaction.meta.postTokenBalances ?? []) {
         if (balance.mint !== outputMint || balance.owner !== owner.toBase58()) continue
         const previous = before.get(`${balance.accountIndex}:${balance.mint}`)
-        receivedRaw += BigInt(balance.uiTokenAmount.amount) - BigInt(previous?.amount ?? '0')
+        const delta = BigInt(balance.uiTokenAmount.amount) - BigInt(previous?.amount ?? '0')
+        receivedRaw += delta
+        if (delta > 0n) tokenAccount = transaction.transaction.message.accountKeys[balance.accountIndex]?.pubkey
         decimals = balance.uiTokenAmount.decimals
         tokenProgram = balance.programId ? new PublicKey(balance.programId) : (previous?.program ?? TOKEN_PROGRAM_ID)
       }
@@ -278,6 +294,7 @@ async function readActualOutput(
         rawAmount: receivedRaw.toString(),
         decimals,
         tokenProgram,
+        tokenAccount,
       }
     } catch (error) {
       lastError = error
@@ -297,6 +314,7 @@ export async function executePreStockSwap({
   amountUsd,
   slippageBps = 500,
   onStatus,
+  onSubmitted,
 }: {
   connection: Connection
   wallet: WalletSigner & { publicKey: PublicKey }
@@ -304,6 +322,7 @@ export async function executePreStockSwap({
   amountUsd: number
   slippageBps?: number
   onStatus?: (status: PurchaseStatus) => void
+  onSubmitted?: (signature: string) => void
 }): Promise<{ signature: string; holding: Holding }> {
   const mint = new PublicKey(outputMint)
   onStatus?.('preparing')
@@ -336,6 +355,7 @@ export async function executePreStockSwap({
   onStatus?.('awaiting-wallet')
   const signature = await wallet.sendTransaction(transaction, connection)
   onStatus?.('submitted')
+  onSubmitted?.(signature)
   onStatus?.('confirming')
   await confirmTransactionWithRetry(connection, signature, 'confirmed', 90_000)
   onStatus?.('confirmed')
@@ -355,14 +375,15 @@ export async function giftPreStock({
   wallet: WalletSigner & { publicKey: PublicKey }
   holding: Holding
   recipientAddress: string
-  amount: number
+  amount: string
 }): Promise<{ signature: string; recipient: string; holding: Holding }> {
   const recipient = new PublicKey(recipientAddress)
   if (recipient.equals(wallet.publicKey)) throw new Error('Choose a recipient wallet different from your own.')
-  if (!Number.isFinite(amount) || amount <= 0 || amount > holding.amount) throw new Error('Enter an amount within your available balance.')
+  const rawAmount = parseRawAmount(amount, holding.decimals)
+  if (rawAmount <= 0n || rawAmount > BigInt(holding.rawAmount)) throw new Error('Enter an amount within your available balance.')
 
   const mint = new PublicKey(holding.mint)
-  const source = await getAssociatedTokenAddress(mint, wallet.publicKey, false, holding.tokenProgram, ASSOCIATED_TOKEN_PROGRAM_ID)
+  const source = holding.tokenAccount ?? await getAssociatedTokenAddress(mint, wallet.publicKey, false, holding.tokenProgram, ASSOCIATED_TOKEN_PROGRAM_ID)
   const destination = await getAssociatedTokenAddress(mint, recipient, false, holding.tokenProgram, ASSOCIATED_TOKEN_PROGRAM_ID)
   const latestBlockhash = await withRpcFallback(connection, (rpcConnection) => rpcConnection.getLatestBlockhash('confirmed'))
   const transaction = new Transaction()
@@ -377,13 +398,12 @@ export async function giftPreStock({
     ASSOCIATED_TOKEN_PROGRAM_ID,
   ))
 
-  const rawAmount = BigInt(Math.round(amount * 10 ** holding.decimals))
   transaction.add(createTransferCheckedInstruction(
     source,
     mint,
     destination,
     wallet.publicKey,
-    Number(rawAmount),
+    rawAmount,
     holding.decimals,
     [],
     holding.tokenProgram,
@@ -396,14 +416,18 @@ export async function giftPreStock({
     recipient: recipient.toBase58(),
     holding: {
       ...holding,
-      amount,
+      amount: parseUiAmount(rawAmount.toString(), holding.decimals),
       rawAmount: rawAmount.toString(),
     },
   }
 }
 
 export function transactionErrorMessage(error: unknown): string {
-  if ((error as SendTransactionError)?.logs?.length) return 'The wallet transaction failed on Solana. Please try again.'
+  const sendError = error as SendTransactionError
+  if (sendError?.logs?.length) {
+    const details = sendError.logs.slice(-3).join(' | ')
+    return `${sendError.message}${details ? ` Details: ${details}` : ''}`
+  }
   if (error instanceof Error) return error.message
   return 'The Solana transaction could not be completed.'
 }

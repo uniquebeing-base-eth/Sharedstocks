@@ -64,6 +64,14 @@ function holdingValue(holding: Holding, stocks: PreStock[]): number {
   return holding.amount * (stock?.tokenPrice ?? 0)
 }
 
+function formatHoldingAmount(holding: Holding): string {
+  const amount = BigInt(holding.rawAmount)
+  const scale = 10n ** BigInt(holding.decimals)
+  const whole = (amount / scale).toString()
+  const fraction = (amount % scale).toString().padStart(holding.decimals, '0').replace(/0+$/, '')
+  return fraction ? `${whole}.${fraction}` : whole
+}
+
 type WalletActivity = { bought: number; gifted: number }
 
 function readWalletActivity(walletAddress: string): WalletActivity {
@@ -202,7 +210,7 @@ function SharedStocksApp() {
   const [purchaseError, setPurchaseError] = useState<string | null>(null)
   const [purchaseSignature, setPurchaseSignature] = useState<string | null>(null)
   const [purchasedHolding, setPurchasedHolding] = useState<Holding | null>(null)
-  const [giftMode, setGiftMode] = useState<'choice' | 'form' | 'complete' | null>(null)
+  const [giftMode, setGiftMode] = useState<'pending' | 'choice' | 'form' | 'complete' | null>(null)
   const [walletActivityState, setWalletActivityState] = useState<{ walletAddress: string; activity: WalletActivity }>({
     walletAddress: '',
     activity: { bought: 0, gifted: 0 },
@@ -261,6 +269,10 @@ function SharedStocksApp() {
         amountUsd: Number(total),
         slippageBps: 500,
         onStatus: setPurchaseStatus,
+        onSubmitted: (signature) => {
+          setPurchaseSignature(signature)
+          setGiftMode('pending')
+        },
       })
       setPurchaseSignature(result.signature)
       const purchaser = publicKey.toBase58()
@@ -301,13 +313,13 @@ function SharedStocksApp() {
         wallet: { publicKey, sendTransaction },
         holding: giftTarget,
         recipientAddress: giftRecipient.trim(),
-        amount: Number(giftAmount),
+        amount: giftAmount,
       })
       setGiftSignature(result.signature)
       const sender = publicKey.toBase58()
       setWalletActivityState((currentState) => {
         const currentActivity = currentState.walletAddress === sender ? currentState.activity : readWalletActivity(sender)
-        const nextActivity = { ...currentActivity, gifted: currentActivity.gifted + Number(giftAmount) }
+        const nextActivity = { ...currentActivity, gifted: currentActivity.gifted + result.holding.amount }
         writeWalletActivity(sender, nextActivity)
         return { walletAddress: sender, activity: nextActivity }
       })
@@ -317,7 +329,7 @@ function SharedStocksApp() {
         .map((holding) => holding.mint === giftTarget.mint
           ? {
               ...holding,
-              amount: holding.amount - Number(giftAmount),
+              amount: holding.amount - result.holding.amount,
               rawAmount: (BigInt(holding.rawAmount) - BigInt(result.holding.rawAmount)).toString(),
             }
           : holding)
@@ -616,7 +628,7 @@ function SharedStocksApp() {
                         <div className="holding-row" key={holding.mint}>
                           <div><strong>{stock?.symbol ?? shortAddress(holding.mint)}</strong><span>{stock?.name.replace(/ PreStocks$/, '') ?? holding.mint}</span></div>
                           <div className="holding-value"><strong>{holding.amount.toLocaleString(undefined, { maximumFractionDigits: 9 })}</strong><span>${holdingValue(holding, stocks).toFixed(2)} USDC</span></div>
-                          <button type="button" className="mini-button" onClick={() => { setGiftTarget(holding); setGiftAmount(holding.amount.toString()); setGiftRecipient(''); setGiftError(null); setGiftSignature(null) }}>Gift</button>
+                          <button type="button" className="mini-button" onClick={() => { setGiftTarget(holding); setGiftAmount(formatHoldingAmount(holding)); setGiftRecipient(''); setGiftError(null); setGiftSignature(null) }}>Gift</button>
                         </div>
                       )
                     })}
@@ -660,11 +672,21 @@ function SharedStocksApp() {
           </div>
         )}
 
-        {giftMode && purchasedHolding && (
+        {giftMode && (purchasedHolding || giftMode === 'pending') && (
           <div className="celebration-backdrop">
             <div className="celebration-card" role="dialog" aria-modal="true" aria-labelledby="purchase-complete-title">
               <button type="button" className="sheet-close" onClick={() => { setGiftMode(null); setActiveView('packs') }} aria-label="Close purchase confirmation">×</button>
-              {giftMode === 'choice' && (
+              {giftMode === 'pending' && (
+                <>
+                  <div className="celebration-mark" aria-hidden="true">✦</div>
+                  <span className="panel-label">Purchase sent</span>
+                  <h2 id="purchase-complete-title">Your PreStock is on its way.</h2>
+                  <p>We&apos;re confirming your purchase now. Your Keep It and Gift It choices will be ready as soon as your shares arrive.</p>
+                  {purchaseSignature && <a className="transaction-link" href={`https://solscan.io/tx/${purchaseSignature}`} target="_blank" rel="noreferrer">View transaction ↗</a>}
+                  {purchaseError && <div className="explore-state error-state">{purchaseError}</div>}
+                </>
+              )}
+              {giftMode === 'choice' && purchasedHolding && (
                 <>
                   <div className="celebration-mark" aria-hidden="true">✦</div>
                   <span className="panel-label">Purchase complete</span>
@@ -675,14 +697,14 @@ function SharedStocksApp() {
                       <strong>Keep It</strong>
                       <span>Keep {purchasedHolding.amount.toLocaleString(undefined, { maximumFractionDigits: 9 })} shares in your collection.</span>
                     </button>
-                    <button type="button" className="choice-button gift" onClick={() => { setGiftTarget(purchasedHolding); setGiftAmount(purchasedHolding.amount.toString()); setGiftError(null); setGiftSignature(null); setGiftMode('form') }}>
+                    <button type="button" className="choice-button gift" onClick={() => { setGiftTarget(purchasedHolding); setGiftAmount(formatHoldingAmount(purchasedHolding)); setGiftError(null); setGiftSignature(null); setGiftMode('form') }}>
                       <strong>Gift It</strong>
                       <span>Share the exact shares you just purchased.</span>
                     </button>
                   </div>
                 </>
               )}
-              {giftMode === 'form' && (
+              {giftMode === 'form' && purchasedHolding && (
                 <>
                   <span className="panel-label">Share the love</span>
                   <h2 id="purchase-complete-title">Gift your new {stocks.find((stock) => stock.contractAddress === purchasedHolding.mint)?.symbol ?? 'PreStock'}</h2>
@@ -693,11 +715,11 @@ function SharedStocksApp() {
                   </div>
                   <input value={giftRecipient} onChange={(event) => setGiftRecipient(event.target.value)} placeholder="Friend's Solana wallet address" aria-label="Friend's Solana wallet address" />
                   {giftError && <div className="explore-state error-state">{giftError}</div>}
-                  <button type="button" className="sheet-primary" onClick={handleGift} disabled={!giftRecipient || Boolean(giftSignature)}>Confirm Gift</button>
+                  <button type="button" className="sheet-primary" onClick={handleGift} disabled={!giftRecipient || isGifting || Boolean(giftSignature)}>{isGifting ? 'Waiting for wallet approval…' : 'Confirm Gift'}</button>
                   <button type="button" className="secondary-button" onClick={() => { setGiftMode(null); setActiveView('packs') }}>Keep It Instead</button>
                 </>
               )}
-              {giftMode === 'complete' && (
+              {giftMode === 'complete' && purchasedHolding && (
                 <>
                   <div className="celebration-mark" aria-hidden="true">✓</div>
                   <span className="panel-label">Gift sent</span>
