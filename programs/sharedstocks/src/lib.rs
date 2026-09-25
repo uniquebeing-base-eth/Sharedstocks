@@ -3,7 +3,7 @@ use anchor_lang::accounts::interface::Interface;
 use anchor_lang::accounts::interface_account::InterfaceAccount;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
 use anchor_spl::token_2022_extensions::{self, TransferCheckedWithFee};
-use anchor_spl::token_interface::{self, get_mint_extension_data, Mint as InterfaceMint, TokenAccount as InterfaceTokenAccount, TokenInterface};
+use anchor_spl::token_interface::{get_mint_extension_data, Mint as InterfaceMint, TokenAccount as InterfaceTokenAccount, TokenInterface};
 use spl_token_2022::extension::transfer_fee::TransferFeeConfig;
 
 declare_id!("HCqpbmtJqBaTPoD23QLCQDTF8shAR2Xa82CNoMikZAGj");
@@ -90,13 +90,13 @@ pub mod sharedstocks {
     }
 
     pub fn enable_asset(ctx: Context<AdminOnly>, mint: Pubkey) -> Result<()> {
-        let position = find_asset(ctx.accounts.config.asset_mints, mint)?;
+        let position = find_asset(&ctx.accounts.config.asset_mints, mint)?;
         ctx.accounts.config.asset_enabled[position] = true;
         Ok(())
     }
 
     pub fn disable_asset(ctx: Context<AdminOnly>, mint: Pubkey) -> Result<()> {
-        let position = find_asset(ctx.accounts.config.asset_mints, mint)?;
+        let position = find_asset(&ctx.accounts.config.asset_mints, mint)?;
         ctx.accounts.config.asset_enabled[position] = false;
         Ok(())
     }
@@ -107,7 +107,7 @@ pub mod sharedstocks {
         amounts: [u64; MAX_TIERS],
     ) -> Result<()> {
         require!(amounts.iter().all(|amount| *amount > 0), ErrorCode::InvalidRewardAmounts);
-        let position = find_asset(ctx.accounts.config.asset_mints, mint)?;
+        let position = find_asset(&ctx.accounts.config.asset_mints, mint)?;
         ctx.accounts.config.asset_reward_amounts[position] = amounts;
         Ok(())
     }
@@ -209,7 +209,7 @@ pub mod sharedstocks {
         let selected = select_asset(config, randomness).ok_or(ErrorCode::NoAvailableAssets)?;
         let tier_index = select_reward_tier(config.reward_tiers, randomness)
             .ok_or(ErrorCode::NoRewardTierConfigured)?;
-        let asset_index = find_asset(config.asset_mints, selected.mint)?;
+        let asset_index = find_asset(&config.asset_mints, selected.mint)?;
         let allocation_amount = config.asset_reward_amounts[asset_index][tier_index];
         require!(allocation_amount > 0, ErrorCode::NoRewardAmountConfigured);
         require!(ctx.accounts.asset_mint.key() == selected.mint, ErrorCode::AssetNotFound);
@@ -242,7 +242,7 @@ pub mod sharedstocks {
         require!(!allocation.claimed, ErrorCode::AllocationAlreadyClaimed);
         require!(pack.owner == ctx.accounts.owner.key(), ErrorCode::NotPackOwner);
 
-        let asset_index = find_asset(config.asset_mints, allocation.asset_mint)?;
+        let asset_index = find_asset(&config.asset_mints, allocation.asset_mint)?;
         require!(config.asset_enabled[asset_index], ErrorCode::AssetDisabled);
         let transfer_fee_config = get_mint_extension_data::<TransferFeeConfig>(
             &ctx.accounts.asset_mint.to_account_info(),
@@ -492,7 +492,7 @@ pub enum ErrorCode {
     #[msg("The randomness account does not match the one committed at purchase.")] RandomnessAccountMismatch,
 }
 
-fn find_asset(asset_mints: [Pubkey; MAX_ASSETS], mint: Pubkey) -> Result<usize> {
+fn find_asset(asset_mints: &[Pubkey; MAX_ASSETS], mint: Pubkey) -> Result<usize> {
     asset_mints
         .iter()
         .position(|candidate| *candidate == mint)
