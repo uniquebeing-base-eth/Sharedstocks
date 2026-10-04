@@ -206,7 +206,7 @@ PreStocks provides tokenized exposure to private companies on Solana.
 Learn more:
 
 PreStocks
-PreStocks Products
+PreStocks.com
 PreStocks Ecosystem
 
 
